@@ -25,6 +25,7 @@ import { api, type SearchResult } from "../lib/api";
 import { clock } from "../lib/format";
 import { useJobs } from "../lib/jobs";
 import { triggerSidebarAnim, useLayout } from "../lib/layout";
+import { getDarkThemeMeta, getLightThemeMeta, resolveEffectiveMode } from "../lib/themes";
 import { useStore, type View } from "../store";
 import { BrandMark } from "./Illustrations";
 import { isVideoMediaUrl } from "./Players";
@@ -198,7 +199,7 @@ export function Sidebar({ isDrawer }: { isDrawer: boolean }) {
           className="nav settings-btn"
           onClick={() => {
             closeDrawer();
-            openSettings("asr");
+            openSettings("appearance");
           }}
         >
           <Settings size={16} />
@@ -223,26 +224,29 @@ export function Sidebar({ isDrawer }: { isDrawer: boolean }) {
 }
 
 export function TopBar({ rightExtra }: { rightExtra?: ReactNode }) {
-  const { history, back, go, addSubscription, shows, notify, theme, savePrefs, viewKind } = useStore(
-    useShallow((s) => ({
-      history: s.history,
-      back: s.back,
-      go: s.go,
-      addSubscription: s.addSubscription,
-      shows: s.shows,
-      notify: s.notify,
-      theme: s.prefs.theme,
-      savePrefs: s.savePrefs,
-      viewKind: s.view.kind,
-    })),
-  );
+  const { history, back, go, addSubscription, shows, notify, theme, lightTheme, darkTheme, savePrefs, viewKind } =
+    useStore(
+      useShallow((s) => ({
+        history: s.history,
+        back: s.back,
+        go: s.go,
+        addSubscription: s.addSubscription,
+        shows: s.shows,
+        notify: s.notify,
+        theme: s.prefs.theme,
+        lightTheme: s.prefs.lightTheme,
+        darkTheme: s.prefs.darkTheme,
+        savePrefs: s.savePrefs,
+        viewKind: s.view.kind,
+      })),
+    );
   const { sideOpen, sideDrawerOpen, put } = useLayout(
     useShallow((l) => ({ sideOpen: l.sideOpen, sideDrawerOpen: l.sideDrawerOpen, put: l.put })),
   );
 
-  const isDark =
-    theme === "dark" ||
-    (theme === "system" && typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  const isDark = resolveEffectiveMode(theme) === "dark";
+  const lightLabel = getLightThemeMeta(lightTheme).name;
+  const darkLabel = getDarkThemeMeta(darkTheme).name;
 
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
@@ -472,8 +476,8 @@ export function TopBar({ rightExtra }: { rightExtra?: ReactNode }) {
             role="radio"
             aria-checked={!isDark}
             className={!isDark ? "on" : ""}
-            title="浅色暖纸"
-            aria-label="浅色模式"
+            title={`浅色 · ${lightLabel}`}
+            aria-label={`浅色模式（${lightLabel}）`}
             onClick={() => savePrefs({ theme: "light" })}
           >
             <Sun size={14} />
@@ -483,8 +487,8 @@ export function TopBar({ rightExtra }: { rightExtra?: ReactNode }) {
             role="radio"
             aria-checked={isDark}
             className={isDark ? "on" : ""}
-            title="深色书房"
-            aria-label="深色模式"
+            title={`深色 · ${darkLabel}`}
+            aria-label={`深色模式（${darkLabel}）`}
             onClick={() => savePrefs({ theme: "dark" })}
           >
             <Moon size={14} />

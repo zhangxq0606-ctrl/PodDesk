@@ -9,10 +9,13 @@ import {
   Globe,
   Keyboard,
   Loader2,
+  Moon,
+  Palette,
   RefreshCw,
   Search,
   Sparkles,
   Square,
+  Sun,
   TerminalSquare,
   Trash2,
   X,
@@ -22,6 +25,15 @@ import { useShallow } from "zustand/react/shallow";
 import { api, type AgentModel, type FoundAgent, type ProviderConfig } from "../lib/api";
 import { formatBytes } from "../lib/format";
 import { AGENT_META, CLOUD_ASR_PRESETS, CORE_PRESETS } from "../lib/providers";
+import {
+  DARK_THEMES,
+  getDarkThemeMeta,
+  getLightThemeMeta,
+  LIGHT_THEMES,
+  resolveEffectiveMode,
+  type PaletteId,
+  type ThemeMeta,
+} from "../lib/themes";
 import { useStore, type SettingsSection, type ThemeMode } from "../store";
 
 const CLI_STATUS: Record<FoundAgent["login"], { text: string; tone: "ok" | "warn" | "idle" }> = {
@@ -53,6 +65,73 @@ const SHORTCUTS: [string, string][] = [
   ["Ctrl + B", "展开 / 收起左侧栏"],
   ["Ctrl + \\", "展开 / 收起右侧栏"],
 ];
+
+function ThemeGrid<T extends PaletteId>({
+  themes,
+  selectedId,
+  isModeActive,
+  onSelect,
+}: {
+  themes: ThemeMeta<T>[];
+  selectedId: T;
+  isModeActive: boolean;
+  onSelect: (id: T) => void;
+}) {
+  return (
+    <div className="theme-grid" role="radiogroup">
+      {themes.map((item) => {
+        const picked = item.id === selectedId;
+        const p = item.preview;
+        return (
+          <button
+            key={item.id}
+            type="button"
+            role="radio"
+            aria-checked={picked}
+            className={`theme-card ${picked ? "on" : ""} ${picked && isModeActive ? "live" : ""}`}
+            onClick={() => onSelect(item.id)}
+          >
+            <div className="tc-mock" style={{ background: p.bg, borderColor: p.line }} aria-hidden>
+              <div className="tc-side" style={{ background: p.sidebar, borderColor: p.line }}>
+                <span className="tc-dot" style={{ background: p.accent }} />
+                <span className="tc-bar" style={{ background: p.text, opacity: 0.3 }} />
+                <span className="tc-bar short" style={{ background: p.muted, opacity: 0.45 }} />
+              </div>
+              <div className="tc-main">
+                <div className="tc-panel" style={{ background: p.panel, borderColor: p.line }}>
+                  <span className="tc-line strong" style={{ background: p.text, opacity: 0.78 }} />
+                  <span className="tc-line" style={{ background: p.muted, opacity: 0.55 }} />
+                  <span className="tc-progress" style={{ background: p.line }}>
+                    <span style={{ background: p.accent }} />
+                  </span>
+                </div>
+                <div className="tc-rows">
+                  <span className="tc-line" style={{ background: p.text, opacity: 0.42 }} />
+                  <span className="tc-line short" style={{ background: p.muted, opacity: 0.42 }} />
+                </div>
+              </div>
+              {picked && (
+                <span
+                  className={`tc-check ${isModeActive ? "" : "inactive"}`}
+                  style={{ background: p.accent, color: item.mode === "dark" ? p.sidebar : "#ffffff" }}
+                >
+                  <Check size={10} strokeWidth={3} />
+                </span>
+              )}
+            </div>
+            <div className="tc-info">
+              <div className="tc-head">
+                <span className="tc-name">{item.name}</span>
+                {picked && <span className="tc-badge">{isModeActive ? "使用中" : "已选"}</span>}
+              </div>
+              <span className="tc-desc">{item.desc}</span>
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 function AgentDetailPanel({
   agent,
@@ -1045,11 +1124,16 @@ export function SettingsModal() {
   if (!open) return null;
 
   const NAV: [SettingsSection, string, LucideIcon][] = [
+    ["appearance", "外观", Palette],
     ["asr", "字幕与转写", Captions],
     ["ai", "AI 模型与 Agent", Sparkles],
     ["network", "网络与风控", Globe],
     ["reading", "阅读与快捷键", Keyboard],
   ];
+
+  const effectiveMode = resolveEffectiveMode(prefs.theme);
+  const activeThemeName =
+    effectiveMode === "dark" ? getDarkThemeMeta(prefs.darkTheme).name : getLightThemeMeta(prefs.lightTheme).name;
 
   const activeAsr = CLOUD_ASR_PRESETS.find((p) => p.id === asrId) ?? CLOUD_ASR_PRESETS[0];
 
@@ -1122,6 +1206,124 @@ export function SettingsModal() {
             </nav>
 
             <div className="settings-body">
+              {section === "appearance" && (
+                <>
+                  <section className="setup-block">
+                    <div className="row-between">
+                      <div>
+                        <p className="setup-title">明暗模式</p>
+                        <p className="muted small">
+                          浅色与深色各自独立记住选中风格，顶栏开关可一键互切 · 当前生效：{activeThemeName}
+                        </p>
+                      </div>
+                      <div className="seg-control" role="radiogroup" aria-label="明暗模式">
+                        {(
+                          [
+                            ["system", "跟随系统"],
+                            ["light", "浅色"],
+                            ["dark", "深色"],
+                          ] as [ThemeMode, string][]
+                        ).map(([k, label]) => (
+                          <button
+                            key={k}
+                            type="button"
+                            role="radio"
+                            aria-checked={prefs.theme === k}
+                            className={prefs.theme === k ? "on" : ""}
+                            onClick={() => savePrefs({ theme: k })}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </section>
+
+                  <section className="setup-block">
+                    <div className="theme-section-head">
+                      <Sun size={14} />
+                      <p className="setup-title">浅色主题</p>
+                      <span className="muted small">白天浏览与纸感长文阅读</span>
+                    </div>
+                    <ThemeGrid
+                      themes={LIGHT_THEMES}
+                      selectedId={prefs.lightTheme}
+                      isModeActive={effectiveMode === "light"}
+                      onSelect={(id) =>
+                        savePrefs(effectiveMode === "light" ? { lightTheme: id } : { lightTheme: id, theme: "light" })
+                      }
+                    />
+                  </section>
+
+                  <section className="setup-block">
+                    <div className="theme-section-head">
+                      <Moon size={14} />
+                      <p className="setup-title">深色主题</p>
+                      <span className="muted small">低光专注、视频沉浸与护眼夜间精读</span>
+                    </div>
+                    <ThemeGrid
+                      themes={DARK_THEMES}
+                      selectedId={prefs.darkTheme}
+                      isModeActive={effectiveMode === "dark"}
+                      onSelect={(id) =>
+                        savePrefs(effectiveMode === "dark" ? { darkTheme: id } : { darkTheme: id, theme: "dark" })
+                      }
+                    />
+                  </section>
+
+                  <section className="setup-block">
+                    <p className="setup-title">字号与实时预览</p>
+                    <div className="reading-preview">
+                      <p className="zh">最重要的是，学习的速度要比世界变化的速度更快。</p>
+                      <p className="orig">The most important thing is to keep learning faster than the world changes.</p>
+                    </div>
+
+                    <div className="reading-row">
+                      <span>字幕字号</span>
+                      <div className="seg-control">
+                        {(
+                          [
+                            ["s", "小"],
+                            ["m", "标准"],
+                            ["l", "大"],
+                          ] as const
+                        ).map(([k, label]) => (
+                          <button
+                            key={k}
+                            type="button"
+                            className={prefs.subtitleSize === k ? "on" : ""}
+                            onClick={() => savePrefs({ subtitleSize: k })}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="reading-row">
+                      <span>问答与导读字号</span>
+                      <div className="seg-control">
+                        {(
+                          [
+                            ["m", "标准"],
+                            ["l", "大"],
+                          ] as const
+                        ).map(([k, label]) => (
+                          <button
+                            key={k}
+                            type="button"
+                            className={prefs.chatSize === k ? "on" : ""}
+                            onClick={() => savePrefs({ chatSize: k })}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </section>
+                </>
+              )}
+
               {section === "asr" && (
                 <>
                   <section className="setup-block">
@@ -1317,77 +1519,7 @@ export function SettingsModal() {
               {section === "reading" && (
                 <>
                   <section className="setup-block">
-                    <p className="setup-title">外观与阅读体验</p>
-                    <div className="reading-preview">
-                      <p className="zh">最重要的是，学习的速度要比世界变化的速度更快。</p>
-                      <p className="orig">The most important thing is to keep learning faster than the world changes.</p>
-                    </div>
-
-                    <div className="reading-row">
-                      <span>主题模式</span>
-                      <div className="seg-control">
-                        {(
-                          [
-                            ["system", "跟随系统"],
-                            ["light", "浅色暖纸"],
-                            ["dark", "深色护眼"],
-                          ] as [ThemeMode, string][]
-                        ).map(([k, label]) => (
-                          <button
-                            key={k}
-                            type="button"
-                            className={prefs.theme === k ? "on" : ""}
-                            onClick={() => savePrefs({ theme: k })}
-                          >
-                            {label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="reading-row">
-                      <span>字幕字号</span>
-                      <div className="seg-control">
-                        {(
-                          [
-                            ["s", "小"],
-                            ["m", "标准"],
-                            ["l", "大"],
-                          ] as const
-                        ).map(([k, label]) => (
-                          <button
-                            key={k}
-                            type="button"
-                            className={prefs.subtitleSize === k ? "on" : ""}
-                            onClick={() => savePrefs({ subtitleSize: k })}
-                          >
-                            {label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="reading-row">
-                      <span>问答与导读字号</span>
-                      <div className="seg-control">
-                        {(
-                          [
-                            ["m", "标准"],
-                            ["l", "大"],
-                          ] as const
-                        ).map(([k, label]) => (
-                          <button
-                            key={k}
-                            type="button"
-                            className={prefs.chatSize === k ? "on" : ""}
-                            onClick={() => savePrefs({ chatSize: k })}
-                          >
-                            {label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
+                    <p className="setup-title">播放与字幕习惯</p>
                     <label className="check">
                       <input
                         type="checkbox"
@@ -1396,6 +1528,9 @@ export function SettingsModal() {
                       />
                       <span>纯音频舞台提前预告下一句字幕</span>
                     </label>
+                    <p className="muted small">
+                      主题风格与字幕/问答字号已移至左侧「外观」页签统一调整。
+                    </p>
                   </section>
 
                   <section className="setup-block">

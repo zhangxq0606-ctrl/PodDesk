@@ -1,0 +1,316 @@
+/* ==========================================================================
+   Podcast Desk Multi-Theme Token System (4 Light + 4 Dark)
+   Three-axis design:
+     data-theme   = "light" | "dark"        (resolved brightness mode)
+     data-palette = LightThemeId | DarkThemeId
+   Elevation ladder:
+     Light: --sidebar < --bg < --panel = --elevated  (--track recessed)
+     Dark:  --sidebar < --bg < --panel < --track < --elevated (+ specular hi)
+   ========================================================================== */
+
+/* ---------- 1. Light Default: Warm Paper (暖宣纸) ---------- */
+:root,
+:root[data-theme="light"],
+:root[data-theme="light"][data-palette="warm-paper"] {
+  --bg: #f7f5f0;
+  --panel: #ffffff;
+  --elevated: #ffffff;
+  --sidebar: #efece5;
+  --soft: #eae5dc;
+  --soft-hover: #dfd8cc;
+  --track: #e9e4db;
+  --line: rgba(28, 26, 23, 0.08);
+  --line-strong: rgba(28, 26, 23, 0.16);
+  --inset-hi: inset 0 1px 0 rgba(255, 255, 255, 0.85);
+  --text: #1c1a17;
+  --text-2: #555049;
+  --muted: #868077;
+  --ink: #1c1a17;
+  --on-ink: #fbfaf7;
+  --accent: #d95b26;
+  --accent-soft: #fdefe8;
+  --accent-text: #b84414;
+  --active-line: #fbf1e8;
+  --mark: #fde0c2;
+  --ok: #1f7a5a;
+  --ok-soft: #e6f4ee;
+  --danger: #c0392b;
+  --danger-soft: #fdeceb;
+  --float-bg: #1f1d1a;
+  --float-fg: #fbfaf7;
+  --float-hover: rgba(255, 255, 255, 0.14);
+  --float-border: rgba(255, 255, 255, 0.1);
+  --backdrop: rgba(20, 18, 15, 0.34);
+  --thumb-ring: rgba(28, 26, 23, 0.09);
+  --shadow-sm: 0 1px 2px rgba(28, 26, 23, 0.05), 0 0 0 1px rgba(28, 26, 23, 0.025);
+  --shadow: 0 2px 8px rgba(28, 26, 23, 0.06), 0 12px 30px rgba(28, 26, 23, 0.09);
+  --shadow-lg: 0 12px 28px rgba(28, 26, 23, 0.12), 0 28px 64px rgba(28, 26, 23, 0.18);
+  color-scheme: light;
+}
+
+/* ---------- 2. Light: Pure Morning (晨光极简) ---------- */
+:root[data-theme="light"][data-palette="pure-morning"] {
+  --bg: #f7f8fa;
+  --panel: #ffffff;
+  --elevated: #ffffff;
+  --sidebar: #eff1f5;
+  --soft: #e7eaf0;
+  --soft-hover: #dbe0e9;
+  --track: #e6e9ef;
+  --line: rgba(17, 24, 39, 0.08);
+  --line-strong: rgba(17, 24, 39, 0.15);
+  --inset-hi: inset 0 1px 0 rgba(255, 255, 255, 0.92);
+  --text: #141821;
+  --text-2: #4b5565;
+  --muted: #7c8698;
+  --ink: #161b26;
+  --on-ink: #ffffff;
+  --accent: #3b6cf5;
+  --accent-soft: #ebf0ff;
+  --accent-text: #2952c8;
+  --active-line: #eef3ff;
+  --mark: #d6e4ff;
+  --ok: #167c5c;
+  --ok-soft: #e6f6f0;
+  --danger: #c83737;
+  --danger-soft: #fdecec;
+  --float-bg: #161b26;
+  --float-fg: #f8fafc;
+  --float-hover: rgba(255, 255, 255, 0.14);
+  --float-border: rgba(255, 255, 255, 0.1);
+  --backdrop: rgba(15, 20, 30, 0.34);
+  --thumb-ring: rgba(17, 24, 39, 0.08);
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05), 0 0 0 1px rgba(15, 23, 42, 0.025);
+  --shadow: 0 3px 10px rgba(15, 23, 42, 0.06), 0 14px 32px rgba(15, 23, 42, 0.09);
+  --shadow-lg: 0 14px 32px rgba(15, 23, 42, 0.12), 0 28px 64px rgba(15, 23, 42, 0.18);
+  color-scheme: light;
+}
+
+/* ---------- 3. Light: Bamboo Mist (柔雾青笺) ---------- */
+:root[data-theme="light"][data-palette="bamboo-mist"] {
+  --bg: #f2f5f2;
+  --panel: #fafcfa;
+  --elevated: #ffffff;
+  --sidebar: #e8eee8;
+  --soft: #dfe7e0;
+  --soft-hover: #d1ddd3;
+  --track: #dde6de;
+  --line: rgba(22, 36, 28, 0.08);
+  --line-strong: rgba(22, 36, 28, 0.16);
+  --inset-hi: inset 0 1px 0 rgba(255, 255, 255, 0.88);
+  --text: #19241e;
+  --text-2: #48594f;
+  --muted: #76887d;
+  --ink: #1c2d24;
+  --on-ink: #f7fbf8;
+  --accent: #2d7a62;
+  --accent-soft: #e2f2eb;
+  --accent-text: #1f614d;
+  --active-line: #e6f2ec;
+  --mark: #cbe8da;
+  --ok: #1f7a5a;
+  --ok-soft: #e2f3eb;
+  --danger: #bf3d34;
+  --danger-soft: #fcebeb;
+  --float-bg: #1b2922;
+  --float-fg: #f5faf7;
+  --float-hover: rgba(255, 255, 255, 0.14);
+  --float-border: rgba(255, 255, 255, 0.1);
+  --backdrop: rgba(18, 28, 22, 0.34);
+  --thumb-ring: rgba(22, 36, 28, 0.09);
+  --shadow-sm: 0 1px 2px rgba(20, 34, 26, 0.05), 0 0 0 1px rgba(20, 34, 26, 0.025);
+  --shadow: 0 2px 8px rgba(20, 34, 26, 0.06), 0 12px 30px rgba(20, 34, 26, 0.09);
+  --shadow-lg: 0 12px 28px rgba(20, 34, 26, 0.12), 0 28px 64px rgba(20, 34, 26, 0.18);
+  color-scheme: light;
+}
+
+/* ---------- 4. Light: Apricot Study (柔杏书房) ---------- */
+:root[data-theme="light"][data-palette="apricot-study"] {
+  --bg: #faf4ed;
+  --panel: #fffcf8;
+  --elevated: #ffffff;
+  --sidebar: #f2e9df;
+  --soft: #ebe0d4;
+  --soft-hover: #dfd2c2;
+  --track: #e9ded2;
+  --line: rgba(46, 34, 30, 0.08);
+  --line-strong: rgba(46, 34, 30, 0.16);
+  --inset-hi: inset 0 1px 0 rgba(255, 255, 255, 0.88);
+  --text: #2b211e;
+  --text-2: #63524c;
+  --muted: #938078;
+  --ink: #2f2320;
+  --on-ink: #fffaf5;
+  --accent: #b85262;
+  --accent-soft: #faeaec;
+  --accent-text: #9b3b4b;
+  --active-line: #f8ebec;
+  --mark: #f6d4d8;
+  --ok: #287866;
+  --ok-soft: #e5f3ef;
+  --danger: #c03a44;
+  --danger-soft: #fcebed;
+  --float-bg: #2b211e;
+  --float-fg: #fffaf5;
+  --float-hover: rgba(255, 255, 255, 0.14);
+  --float-border: rgba(255, 255, 255, 0.1);
+  --backdrop: rgba(34, 24, 20, 0.34);
+  --thumb-ring: rgba(46, 34, 30, 0.09);
+  --shadow-sm: 0 1px 2px rgba(42, 30, 26, 0.05), 0 0 0 1px rgba(42, 30, 26, 0.025);
+  --shadow: 0 2px 8px rgba(42, 30, 26, 0.06), 0 12px 30px rgba(42, 30, 26, 0.09);
+  --shadow-lg: 0 12px 28px rgba(42, 30, 26, 0.12), 0 28px 64px rgba(42, 30, 26, 0.18);
+  color-scheme: light;
+}
+
+/* ---------- 5. Dark Default: Warm Charcoal (暖炭书房) ---------- */
+:root[data-theme="dark"],
+:root[data-theme="dark"][data-palette="warm-charcoal"] {
+  --bg: #151412;
+  --panel: #1e1c1a;
+  --elevated: #34302b;
+  --sidebar: #100f0e;
+  --soft: #262320;
+  --soft-hover: #312d29;
+  --track: #221f1c;
+  --line: rgba(242, 238, 231, 0.085);
+  --line-strong: rgba(242, 238, 231, 0.165);
+  --inset-hi: inset 0 1px 0 rgba(255, 250, 242, 0.075);
+  --text: #ece8e1;
+  --text-2: #b8b1a7;
+  --muted: #847d74;
+  --ink: #ece8e1;
+  --on-ink: #141312;
+  --accent: #ef8354;
+  --accent-soft: rgba(239, 131, 84, 0.16);
+  --accent-text: #f7a681;
+  --active-line: #28211b;
+  --mark: rgba(239, 131, 84, 0.3);
+  --ok: #4ec499;
+  --ok-soft: rgba(78, 196, 153, 0.15);
+  --danger: #f2746b;
+  --danger-soft: rgba(242, 116, 107, 0.15);
+  --float-bg: #2c2824;
+  --float-fg: #f4f0e9;
+  --float-hover: rgba(255, 255, 255, 0.12);
+  --float-border: rgba(242, 238, 231, 0.18);
+  --backdrop: rgba(4, 4, 3, 0.62);
+  --thumb-ring: rgba(242, 238, 231, 0.11);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.38);
+  --shadow: 0 4px 14px rgba(0, 0, 0, 0.42), 0 16px 36px rgba(0, 0, 0, 0.48);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.56), 0 32px 72px rgba(0, 0, 0, 0.64);
+  color-scheme: dark;
+}
+
+/* ---------- 6. Dark: Deep Slate (深夜石板) ---------- */
+:root[data-theme="dark"][data-palette="deep-slate"] {
+  --bg: #131820;
+  --panel: #1b222e;
+  --elevated: #313d50;
+  --sidebar: #0e1218;
+  --soft: #232c3a;
+  --soft-hover: #2d384a;
+  --track: #1f2734;
+  --line: rgba(218, 229, 245, 0.09);
+  --line-strong: rgba(218, 229, 245, 0.175);
+  --inset-hi: inset 0 1px 0 rgba(226, 238, 255, 0.08);
+  --text: #e7edf7;
+  --text-2: #aab7cb;
+  --muted: #7888a0;
+  --ink: #e7edf7;
+  --on-ink: #11161e;
+  --accent: #6ea8fe;
+  --accent-soft: rgba(110, 168, 254, 0.16);
+  --accent-text: #9bc4ff;
+  --active-line: #1f2c40;
+  --mark: rgba(110, 168, 254, 0.28);
+  --ok: #4cc99b;
+  --ok-soft: rgba(76, 201, 155, 0.15);
+  --danger: #f27474;
+  --danger-soft: rgba(242, 116, 116, 0.15);
+  --float-bg: #263142;
+  --float-fg: #f0f5fc;
+  --float-hover: rgba(255, 255, 255, 0.12);
+  --float-border: rgba(218, 229, 245, 0.2);
+  --backdrop: rgba(4, 7, 12, 0.64);
+  --thumb-ring: rgba(218, 229, 245, 0.12);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow: 0 4px 14px rgba(0, 0, 0, 0.44), 0 16px 36px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.58), 0 32px 72px rgba(0, 0, 0, 0.68);
+  color-scheme: dark;
+}
+
+/* ---------- 7. Dark: Obsidian Cinema (黑曜影院) ---------- */
+:root[data-theme="dark"][data-palette="obsidian-cinema"] {
+  --bg: #0d0d0f;
+  --panel: #16161a;
+  --elevated: #2e2e36;
+  --sidebar: #08080a;
+  --soft: #1f1f25;
+  --soft-hover: #2a2a32;
+  --track: #1b1b20;
+  --line: rgba(242, 242, 248, 0.09);
+  --line-strong: rgba(242, 242, 248, 0.175);
+  --inset-hi: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  --text: #f0f0f3;
+  --text-2: #afb1bb;
+  --muted: #7a7c88;
+  --ink: #f0f0f3;
+  --on-ink: #0d0d0f;
+  --accent: #e8a246;
+  --accent-soft: rgba(232, 162, 70, 0.16);
+  --accent-text: #f3be72;
+  --active-line: #231d14;
+  --mark: rgba(232, 162, 70, 0.28);
+  --ok: #4ec499;
+  --ok-soft: rgba(78, 196, 153, 0.15);
+  --danger: #f2746b;
+  --danger-soft: rgba(242, 116, 107, 0.15);
+  --float-bg: #24242b;
+  --float-fg: #f5f5f8;
+  --float-hover: rgba(255, 255, 255, 0.12);
+  --float-border: rgba(255, 255, 255, 0.19);
+  --backdrop: rgba(0, 0, 0, 0.7);
+  --thumb-ring: rgba(255, 255, 255, 0.12);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.48);
+  --shadow: 0 4px 16px rgba(0, 0, 0, 0.54), 0 18px 40px rgba(0, 0, 0, 0.62);
+  --shadow-lg: 0 18px 44px rgba(0, 0, 0, 0.68), 0 34px 78px rgba(0, 0, 0, 0.76);
+  color-scheme: dark;
+}
+
+/* ---------- 8. Dark: Pine Ink (松烟墨绿) ---------- */
+:root[data-theme="dark"][data-palette="pine-ink"] {
+  --bg: #121b17;
+  --panel: #192520;
+  --elevated: #2e4239;
+  --sidebar: #0d1411;
+  --soft: #21302a;
+  --soft-hover: #2b3e36;
+  --track: #1d2a24;
+  --line: rgba(220, 236, 226, 0.09);
+  --line-strong: rgba(220, 236, 226, 0.175);
+  --inset-hi: inset 0 1px 0 rgba(226, 245, 233, 0.08);
+  --text: #eaece6;
+  --text-2: #adbab0;
+  --muted: #7a8c80;
+  --ink: #e8ebe4;
+  --on-ink: #111a16;
+  --accent: #d4a857;
+  --accent-soft: rgba(212, 168, 87, 0.16);
+  --accent-text: #e6c27b;
+  --active-line: #232d22;
+  --mark: rgba(212, 168, 87, 0.28);
+  --ok: #56cc9d;
+  --ok-soft: rgba(86, 204, 157, 0.15);
+  --danger: #ed786e;
+  --danger-soft: rgba(237, 120, 110, 0.15);
+  --float-bg: #24352d;
+  --float-fg: #eff3ec;
+  --float-hover: rgba(255, 255, 255, 0.12);
+  --float-border: rgba(220, 236, 226, 0.2);
+  --backdrop: rgba(4, 10, 7, 0.64);
+  --thumb-ring: rgba(220, 236, 226, 0.12);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow: 0 4px 14px rgba(0, 0, 0, 0.44), 0 16px 36px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.58), 0 32px 72px rgba(0, 0, 0, 0.68);
+  color-scheme: dark;
+}

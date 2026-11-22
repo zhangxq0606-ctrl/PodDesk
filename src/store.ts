@@ -9,6 +9,14 @@ import {
   type Show,
 } from "./lib/api";
 import { AGENT_META, buildProviders, CLOUD_ASR_PRESETS, type ProviderOverride } from "./lib/providers";
+import {
+  DEFAULT_DARK_THEME,
+  DEFAULT_LIGHT_THEME,
+  normalizeDarkTheme,
+  normalizeLightTheme,
+  type DarkThemeId,
+  type LightThemeId,
+} from "./lib/themes";
 
 export type View =
   | { kind: "home" }
@@ -19,7 +27,7 @@ export type SubtitleMode = "bilingual" | "translation" | "original" | "off";
 export type SubtitleSize = "s" | "m" | "l";
 export type ChatSize = "m" | "l";
 export type ThemeMode = "system" | "light" | "dark";
-export type SettingsSection = "asr" | "ai" | "network" | "reading";
+export type SettingsSection = "appearance" | "asr" | "ai" | "network" | "reading";
 
 export interface PlayerHandle {
   episodeId: string;
@@ -34,6 +42,8 @@ export interface Prefs {
   subtitleSize: SubtitleSize;
   chatSize: ChatSize;
   theme: ThemeMode;
+  lightTheme: LightThemeId;
+  darkTheme: DarkThemeId;
   audioNextLine: boolean;
   audioStageSub: boolean;
   playbackRate: number;
@@ -56,6 +66,8 @@ const DEFAULT_PREFS: Prefs = {
   subtitleSize: "m",
   chatSize: "m",
   theme: "light",
+  lightTheme: DEFAULT_LIGHT_THEME,
+  darkTheme: DEFAULT_DARK_THEME,
   audioNextLine: true,
   audioStageSub: true,
   playbackRate: 1,
@@ -74,7 +86,12 @@ const DEFAULT_PREFS: Prefs = {
 function readPrefs(): Prefs {
   try {
     const raw = JSON.parse(localStorage.getItem(PREFS_KEY) ?? "{}") as Partial<Prefs>;
-    return { ...DEFAULT_PREFS, ...raw };
+    return {
+      ...DEFAULT_PREFS,
+      ...raw,
+      lightTheme: normalizeLightTheme(raw.lightTheme),
+      darkTheme: normalizeDarkTheme(raw.darkTheme),
+    };
   } catch {
     return DEFAULT_PREFS;
   }

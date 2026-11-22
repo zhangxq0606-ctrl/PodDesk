@@ -85,6 +85,7 @@
 | 共享字幕飞轮留接口暂不上线、零海外服务器 | 冷启动期单集重叠率低，首版专注单机闭环；未来推广期可用国内 2核2G 服务器托管纯文本共享库 | 首版跳过服务端部署与运维，不引入跨机状态复杂度 | **船长已确认方向，暂缓实施** |
 | 首版聚焦高效嵌入 AI Agent，暂缓重度知识整理与 HackerTube 细节 | 防止首版范围膨胀，先把核心取稿、双语与在场感问答打牢 | 深度多视角 Markdown 沉淀、Obsidian 直写及快捷键增强留作核心工作台跑通后的迭代项 | **船长已确认方向，延后至二期** |
 | 信源增补纯文本/`.srt`/`.vtt`与本地音视频导入；前端预设精简为核心厂商 | 零反爬成本覆盖 B 站/课程等平台外内容；避免维护近 30 家冷门厂商硬编码模型名 | 底层 OpenAI/Anthropic/CLI 协议保持 100% 兼容，界面与维护更清爽 | **已实测 `.srt` / 纯文本 / `.wav` 上传与 `Range 206` 播放持久化** |
+| 阶段 4 离线 ASR 采用统一 CrispASR v0.8.55 + 按硬件分层的三档本地模型（砍掉 Whisper 档） | 面向大众分发（Mac Apple Silicon/Intel + Windows 核显/独显）兼顾速度、中英混说与术语上下文：纯 CPU 轻薄本/Intel Mac 默认 `SenseVoice-Small`（`Q8_0`, 240 MB, FunASR v1.1 仅运行时在线下载+署名）；M 芯片 Mac / GPU Windows 默认 `Qwen3-ASR 0.6B`（普通 `Q4_K`, 602 MB, Apache-2.0, 2026-07 重烤锁 Q8_0 编码器, 禁用 `imatrix`）；高配独显/16 GB+ Mac 可选 `Qwen3-ASR 1.7B`（`Q5_K`, 1.66 GB, Apache-2.0）。Qwen3 已覆 30 语种 + 22 方言，无需自带 Whisper | Rust 侧抽 `AsrEngine` 边界并以子进程隔离 `CrispASR v0.8.55`；Windows 不依赖 Vulkan 自动回退（vulkan 构建无 CPU 回退），改由后端硬件探测 + 独显选卡（`-dev`）+ 短样音试跑 + 自动回退 `cpu`（9.3 MB）/ `cpu-legacy`（8.7 MB）（N 卡可选 CUDA 13）；首版靠 VAD 细粒度停顿切片满足句级字幕与 `[mm:ss]` 跳转，不强绑 500 MB ForcedAligner；Windows ARM64 首版走云端兜底 | **船长已确认选型与路线（2026-11-22 交叉调研定案），待明日阶段 4 施工与真机实测** |
 
 ## 待验证假设
 

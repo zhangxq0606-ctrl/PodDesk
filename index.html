@@ -7,6 +7,28 @@
     <title>Podcast Desk</title>
     <link rel="preconnect" href="https://www.youtube.com" />
     <link rel="preconnect" href="https://i.ytimg.com" />
+    <script>
+      (function () {
+        try {
+          var raw = JSON.parse(localStorage.getItem("podcast-desk-prefs") || "{}");
+          var t = raw && (raw.theme === "dark" || raw.theme === "light" || raw.theme === "system") ? raw.theme : "light";
+          var mode = t === "system" ? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light") : t;
+          var lightIds = ["warm-paper", "pure-morning", "bamboo-mist", "apricot-study"];
+          var darkIds = ["warm-charcoal", "deep-slate", "obsidian-cinema", "pine-ink"];
+          var pal =
+            mode === "dark"
+              ? darkIds.indexOf(raw && raw.darkTheme) >= 0
+                ? raw.darkTheme
+                : "warm-charcoal"
+              : lightIds.indexOf(raw && raw.lightTheme) >= 0
+                ? raw.lightTheme
+                : "warm-paper";
+          var el = document.documentElement;
+          el.setAttribute("data-theme", mode);
+          el.setAttribute("data-palette", pal);
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

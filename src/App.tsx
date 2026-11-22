@@ -9,6 +9,7 @@ import { SettingsModal } from "./components/SettingsModal";
 import { ImportModal, MiniPlayer, Sidebar, Toast, TopBar } from "./components/Sidebar";
 import { Splitter } from "./components/Splitter";
 import { SIDEBAR, triggerSidebarAnim, useLayout } from "./lib/layout";
+import { resolveEffectiveMode } from "./lib/themes";
 import { useStore, type View } from "./store";
 
 const MainContent = memo(function MainContent({ view }: { view: View }) {
@@ -69,7 +70,7 @@ class ErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryStat
 }
 
 function AppShell() {
-  const { ready, view, notice, setNotice, bootstrap, theme, subSize, chatSize } = useStore(
+  const { ready, view, notice, setNotice, bootstrap, theme, lightTheme, darkTheme, subSize, chatSize } = useStore(
     useShallow((s) => ({
       ready: s.ready,
       view: s.view,
@@ -77,6 +78,8 @@ function AppShell() {
       setNotice: s.setNotice,
       bootstrap: s.bootstrap,
       theme: s.prefs.theme,
+      lightTheme: s.prefs.lightTheme,
+      darkTheme: s.prefs.darkTheme,
       subSize: s.prefs.subtitleSize,
       chatSize: s.prefs.chatSize,
     })),
@@ -107,9 +110,17 @@ function AppShell() {
 
   useEffect(() => {
     const root = document.documentElement;
-    if (theme === "system") root.removeAttribute("data-theme");
-    else root.setAttribute("data-theme", theme);
-  }, [theme]);
+    const apply = () => {
+      const mode = resolveEffectiveMode(theme);
+      root.setAttribute("data-theme", mode);
+      root.setAttribute("data-palette", mode === "dark" ? darkTheme : lightTheme);
+    };
+    apply();
+    if (theme !== "system" || typeof window === "undefined") return;
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, [theme, lightTheme, darkTheme]);
 
   useEffect(() => {
     const scrollTimers = new WeakMap<Element, number>();

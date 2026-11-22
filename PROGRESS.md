@@ -46,9 +46,15 @@ last_verified: 2026-11-22
 
 # 下一步
 
-请船长重启 `.\server\target\debug\podcast-desk.exe` 并刷新 `http://127.0.0.1:14327` 实测阶段 3（YouTube 频道入库 50 集/真头像/时长/加载更早单集、Lenny's Podcast RSS 年月定位与状态筛选、首页续播卡/订阅更新/全部刷新、手动标已看与侧栏未看数同步），随后推进阶段 4（无字幕 ASR 选型与闭环）。
+当前阶段 1–3 基线已本地提交（`0434c85`），**全站外观精修与 8 套浅/深色多主题系统**已完成并经实机浏览器截图双轮验收（待船长决定是否本地提交）；明日按 [ARCHITECTURE.md](ARCHITECTURE.md) 已定案的「三档本地 ASR + CrispASR v0.8.55 探测回退」实施阶段 4。
 
 # 最近完成
+
+- **2026-11-22（全站外观质感精修 + 4 浅 / 4 深多主题与「外观」设置页）**：
+  - 主题体系与零白闪启动（[themes.ts](src/lib/themes.ts)、[themes.css](src/themes.css)、[index.html](index.html)、[main.tsx](src/main.tsx)、[store.ts](src/store.ts)、[App.tsx](src/App.tsx)）：实现三轴解耦偏好（`theme: system/light/dark` + `lightTheme` + `darkTheme`），内置 4 套浅色（暖宣纸 / 晨光极简 / 柔雾青笺 / 柔杏书房）与 4 套深色（暖炭书房 / 深夜石板 / 黑曜影院 / 松烟墨绿）；`index.html` 首屏同步脚本消除深色刷新白闪。
+  - 设置页新增「外观」独立页签（[SettingsModal.tsx](src/components/SettingsModal.tsx)、[Sidebar.tsx](src/components/Sidebar.tsx)）：提供明暗三段切换、8 张迷你工作台缩略预览卡（点选即实时预览，顶栏日/月开关动态提示当前主题名），并将字幕/问答字号调节与实时预览收编至「外观」。
+  - 单套质感精修（[styles.css](src/styles.css)）：新增 `--elevated` / `--track` / `--inset-hi` 等分层变量，根治深色模式下分段控件与主题滑块选中态反凹问题；清理划词浮条、封面描边、遮罩等非媒体区硬编码色值；重做频道页 `.search-inline` 为一体式搜索框，调校 `MonthFilter` 深色对比度与音频舞台/Markdown 排版层次。
+  - 验证：`npm run typecheck` 与 `npm run build` 退出 0；在运行中的 `http://127.0.0.1:14327`（1440×900）完成两轮共 10 张多主题实机截图检视与微调（涵盖全部 8 套主题、首页/频道/音频工作台/零滚动外观设置窗及深色重载无白闪校验，0 控制台报错，末尾已还原至浅色「暖宣纸」）。
 
 - **2026-11-22（阶段 3 体验优化 + 音频提词开关恢复）**：
   - 订阅更新去压力化（[db.rs](server/src/db.rs)、[routes.rs](server/src/routes.rs)、[Lists.tsx](src/components/Lists.tsx)、[Sidebar.tsx](src/components/Sidebar.tsx)）：侧栏未看数字角标改为仅在「近 7 天有未看新集」时亮起 6px 小圆点；首页「订阅更新」去掉总集数展示，改为 `近 7 天 / 近 30 天` 时间窗 + 单频道最多展示最新 5 集（无更新时兜底最新 10 集）；频道页新增 `POST /api/shows/{id}/mark-all-completed`「全部标为已看/已听」按钮。
