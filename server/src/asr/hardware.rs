@@ -41,6 +41,18 @@ impl RuntimeVariant {
     }
 
     pub fn label(self) -> &'static str {
+        // On Apple Silicon the only macOS/arm64 build is compiled with Metal + BLAS,
+        // so the generic "CPU (AVX2)" wording would be misleading there.
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+        {
+            return match self {
+                Self::Vulkan => "Vulkan GPU",
+                Self::Cuda13 => "NVIDIA CUDA 13",
+                Self::Cpu => "Apple Silicon (Metal)",
+                Self::CpuLegacy => "CPU Legacy",
+            };
+        }
+        #[allow(unreachable_code)]
         match self {
             Self::Vulkan => "Vulkan GPU",
             Self::Cuda13 => "NVIDIA CUDA 13",
@@ -155,6 +167,23 @@ pub fn cpu_supports_avx2() -> bool {
     }
     #[allow(unreachable_code)]
     false
+}
+
+fn apple_chip_name() -> Option<String> {
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    {
+        let out = std::process::Command::new("/usr/sbin/sysctl")
+            .args(["-n", "machdep.cpu.brand_string"])
+            .output()
+            .ok()?;
+        let name = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if out.status.success() && !name.is_empty() {
+            return Some(name);
+        }
+        return None;
+    }
+    #[allow(unreachable_code)]
+    None
 }
 
 pub fn cpu_fallback_variant(avx2: bool) -> RuntimeVariant {
@@ -365,6 +394,13 @@ pub fn detect_hardware(force: bool) -> HardwareProfile {
         }
     } else if let Some(igpu) = gpus.first() {
         format!("{} · 纯 CPU/{}", igpu.name, if avx2 { "AVX2" } else { "Legacy" })
+    } else if os == "macos" && arch == "aarch64" {
+        // The macOS arm64 CrispASR build ships the embedded Metal library and
+        // picks Metal automatically (`--gpu-backend auto`); AVX2 does not apply on ARM.
+        match apple_chip_name() {
+            Some(chip) => format!("{chip} · Metal 加速（{arch}）"),
+            None => format!("Apple Silicon · Metal 加速（{arch}）"),
+        }
     } else {
         format!("{os}/{arch} · {}", if avx2 { "AVX2 CPU" } else { "Legacy CPU" })
     };
@@ -810,6 +846,13 @@ ggml_vulkan: 1 = NVIDIA GeForce RTX 5070 Ti Laptop GPU (NVIDIA) | uma: 0
         let best = pick_preferred_device(&devs).unwrap();
         assert_eq!(best.0, 1);
         assert!(best.1.contains("RTX 5070 Ti"));
+    }
+
+    #[test]
+    fn recommends_metal_engine_on_apple_silicon() {
+        let (v, m) = recommend_defaults("macos", "aarch64", false, &[]);
+        assert_eq!(v, Some(RuntimeVariant::Cpu));
+        assert_eq!(m, QWEN3_06B_MODEL_ID);
     }
 
     #[test]

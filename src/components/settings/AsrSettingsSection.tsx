@@ -47,6 +47,8 @@ export function AsrSettingsSection() {
   const [asrMsg, setAsrMsg] = useState<string | null>(null);
 
   const hw = asrStatus?.hardware;
+  const appleSilicon = hw?.os === "macos" && hw?.arch === "aarch64";
+  const variantLabel = (v: AsrVariant) => (appleSilicon && v === "cpu" ? "Apple Silicon (Metal)" : VARIANT_LABEL[v]);
   const rt = asrStatus?.runtime;
   const models = asrStatus?.models ?? [];
   const activeLocalId = resolveLocalModelId(prefs.asrChoice, asrStatus);
@@ -95,7 +97,7 @@ export function AsrSettingsSection() {
         await startDownload({
           variant: res.variant,
           runtimeOnly: true,
-          label: `CrispASR ${VARIANT_LABEL[res.variant]}（约 ${res.approxMb ?? 20} MB）`,
+          label: `CrispASR ${variantLabel(res.variant)}（约 ${res.approxMb ?? 20} MB）`,
         });
         return;
       }
@@ -111,11 +113,14 @@ export function AsrSettingsSection() {
   const curatedModels = models.filter((m) => !m.id.startsWith("file:"));
   const extraModels = models.filter((m) => m.id.startsWith("file:"));
 
-  const cpuFallbackVar: AsrVariant = hw?.avx2 === false ? "cpu-legacy" : "cpu";
+  const cpuFallbackVar: AsrVariant = appleSilicon ? "cpu" : hw?.avx2 === false ? "cpu-legacy" : "cpu";
   const variantOptions: { key: string; label: string }[] = [{ key: "auto", label: "自动推荐" }];
   if (hw?.hasDiscreteGpu) variantOptions.push({ key: "vulkan", label: "Vulkan GPU" });
   if (hw?.hasNvidia) variantOptions.push({ key: "cuda13", label: "CUDA 13 (544 MB)" });
-  variantOptions.push({ key: cpuFallbackVar, label: hw?.avx2 === false ? "纯 CPU Legacy" : "纯 CPU" });
+  variantOptions.push({
+    key: cpuFallbackVar,
+    label: appleSilicon ? "Apple Silicon (Metal)" : hw?.avx2 === false ? "纯 CPU Legacy" : "纯 CPU",
+  });
 
   const currentVariantKey = rt?.activeVariant ?? rt?.preferredVariant ?? hw?.recommendedVariant ?? "auto";
 
@@ -146,7 +151,7 @@ export function AsrSettingsSection() {
               <Cpu size={14} className="muted" />
               <span>
                 当前后端：
-                <strong>{rt?.activeVariant ? VARIANT_LABEL[rt.activeVariant] : "未安装"}</strong>
+                <strong>{rt?.activeVariant ? variantLabel(rt.activeVariant) : "未安装"}</strong>
                 {rt?.deviceIndex != null && rt.gpuName ? ` · -dev ${rt.deviceIndex}（${rt.gpuName}）` : ""}
               </span>
             </span>
