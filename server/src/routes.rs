@@ -108,6 +108,7 @@ pub fn router(state: Arc<AppState>, dist_dir: PathBuf) -> Router {
         .route("/api/episodes/{id}/blobs/{kind}", get(get_blob).post(set_blob))
         .route("/api/asr/models", get(asr_models))
         .route("/api/asr/models/download", post(download_asr_models))
+        .route("/api/asr/probe", post(probe_asr_runtime))
         .route("/api/cookies", get(get_cookies).post(set_cookies))
         .route("/api/translate/google", post(translate_google))
         .route("/api/agents", get(detect_agents))
@@ -1362,22 +1363,103 @@ async fn cancel_job(State(state): State<Arc<AppState>>, AxumPath(id): AxumPath<S
     Json(json!({ "ok": true })).into_response()
 }
 
-// ---- ASR models, transcription, YouTube stream fallback & cookies ------------------------------
+// ---- ASR models, hardware probe, transcription, YouTube stream fallback & cookies --------------
+
+fn build_asr_status_json(data_dir: &std::path::Path, force_hw: bool) -> Value {
+    let hw = asr::detect_hardware(force_hw);
+    let models = asr::list_models(data_dir, &hw.recommended_model);
+    let installed_variants = asr::installed_variants(data_dir);
+    let state = asr::load_runtime_state(data_dir);
+    let active_variant = state
+        .active_variant
+        .filter(|v| installed_variants.contains(v))
+        .or_else(|| hw.recommended_variant.filter(|v| installed_variants.contains(v)))
+        .or_else(|| installed_variants.first().copied());
+    let preferred_variant = state.preferred_variant.or(hw.recommended_variant);
+    let rec = models.iter().find(|m| m.id == hw.recommended_model).or_else(|| models.first());
+    let any_model = models.iter().any(|m| m.installed);
+    let engine_ready = active_variant.is_some();
+    let vad_ready = asr::has_vad_model(data_dir);
+
+    json!({
+        "modelId": hw.recommended_model,
+        "name": rec.map(|m| m.name.clone()).unwrap_or_else(|| "Qwen3-ASR 0.6B".into()),
+        "sizeMb": rec.map(|m| m.size_mb).unwrap_or(602),
+        "modelReady": rec.is_some_and(|m| m.installed) || any_model,
+        "engineReady": engine_ready,
+        "ytdlpReady": asr::find_ytdlp(data_dir).is_some(),
+        "vadReady": vad_ready,
+        "hardware": hw,
+        "runtime": {
+            "version": asr::CRISPASR_VERSION,
+            "activeVariant": active_variant.map(|v| v.as_str()),
+            "preferredVariant": preferred_variant.map(|v| v.as_str()),
+            "installedVariants": installed_variants.iter().map(|v| v.as_str()).collect::<Vec<_>>(),
+            "deviceIndex": if state.active_variant == active_variant { state.device_index } else { None },
+            "gpuName": if state.active_variant == active_variant { state.gpu_name.clone() } else { None },
+            "verified": state.verified && state.active_variant == active_variant,
+            "fallbackReason": if state.active_variant == active_variant { state.fallback_reason.clone() } else { None },
+        },
+        "models": models,
+    })
+}
 
 async fn asr_models(State(state): State<Arc<AppState>>) -> Response {
-    let models = asr::list_models(&state.data_dir);
-    let qwen = models.iter().find(|m| m.id == asr::QWEN3_MODEL_ID);
-    let any_model = models.iter().any(|m| m.installed);
-    Json(json!({
-        "modelId": asr::QWEN3_MODEL_ID,
-        "name": qwen.map(|m| m.name.clone()).unwrap_or_else(|| "Qwen3-ASR 0.6B".into()),
-        "sizeMb": qwen.map(|m| m.size_mb).unwrap_or(960),
-        "modelReady": qwen.is_some_and(|m| m.installed) || any_model,
-        "engineReady": asr::find_crispasr(&state.data_dir).is_some(),
-        "ytdlpReady": asr::find_ytdlp(&state.data_dir).is_some(),
-        "models": models,
-    }))
-    .into_response()
+    let data = state.data_dir.clone();
+    let payload = tokio::task::spawn_blocking(move || build_asr_status_json(&data, false))
+        .await
+        .unwrap_or_else(|_| json!({ "error": "读取 ASR 状态失败" }));
+    Json(payload).into_response()
+}
+
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct ProbeAsrBody {
+    variant: Option<String>,
+    device_index: Option<u32>,
+    force_hardware: Option<bool>,
+}
+
+async fn probe_asr_runtime(State(state): State<Arc<AppState>>, Json(body): Json<ProbeAsrBody>) -> Response {
+    let force_hw = body.force_hardware.unwrap_or(false);
+    let hw = tokio::task::spawn_blocking(move || asr::detect_hardware(force_hw))
+        .await
+        .unwrap_or_else(|_| asr::detect_hardware(false));
+
+    let target = match body.variant.as_deref().map(str::trim).filter(|s| !s.is_empty() && *s != "auto") {
+        Some(raw) => match asr::RuntimeVariant::parse(raw) {
+            Some(v) => v,
+            None => return api_error(StatusCode::BAD_REQUEST, format!("未知推理后端：{raw}")),
+        },
+        None => match hw.recommended_variant {
+            Some(v) => v,
+            None => return api_error(StatusCode::BAD_REQUEST, "当前平台暂不支持离线 CrispASR，请使用云端 ASR"),
+        },
+    };
+
+    if asr::find_crispasr_variant(&state.data_dir, target).is_none() {
+        return Json(json!({
+            "needsDownload": true,
+            "variant": target.as_str(),
+            "approxMb": target.approx_mb(),
+        }))
+        .into_response();
+    }
+
+    let resolved = asr::resolve_model(&state.data_dir, None, &hw.recommended_model);
+    let model_pair = resolved.as_ref().map(|m| (m.path.as_path(), m.backend));
+    let cancel = Arc::new(AtomicBool::new(false));
+    match asr::probe_and_verify(&state.data_dir, target, body.device_index, model_pair, &hw, &cancel, |_, _, _| {}).await
+    {
+        Ok(_) => {
+            let d = state.data_dir.clone();
+            let payload = tokio::task::spawn_blocking(move || build_asr_status_json(&d, false))
+                .await
+                .unwrap_or_default();
+            Json(payload).into_response()
+        }
+        Err(e) => api_error(StatusCode::BAD_REQUEST, e.to_string()),
+    }
 }
 
 #[derive(Deserialize, Default)]
@@ -1385,7 +1467,9 @@ async fn asr_models(State(state): State<Arc<AppState>>) -> Response {
 struct DownloadAsrBody {
     request_id: Option<String>,
     model_id: Option<String>,
+    variant: Option<String>,
     mirror_first: Option<bool>,
+    runtime_only: Option<bool>,
 }
 
 async fn download_asr_models(
@@ -1393,13 +1477,8 @@ async fn download_asr_models(
     Json(body): Json<DownloadAsrBody>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let request_id = body.request_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-    let model_id = body
-        .model_id
-        .as_deref()
-        .filter(|s| !s.trim().is_empty())
-        .unwrap_or(asr::QWEN3_MODEL_ID)
-        .to_string();
     let mirror_first = body.mirror_first.unwrap_or(true);
+    let runtime_only = body.runtime_only.unwrap_or(false);
     let cancel = state.start_job(&request_id);
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<Result<Event, Infallible>>();
 
@@ -1409,19 +1488,43 @@ async fn download_asr_models(
             let _ = tx.send(Ok(Event::default().data(v.to_string())));
         };
 
+        let hw = tokio::task::spawn_blocking(|| asr::detect_hardware(false))
+            .await
+            .unwrap_or_else(|_| asr::detect_hardware(false));
+        let model_id = body
+            .model_id
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+            .map(asr::normalize_model_id)
+            .unwrap_or(&hw.recommended_model)
+            .to_string();
+
         let res: anyhow::Result<()> = async {
-            if asr::find_crispasr(&state_clone.data_dir).is_none() {
-                send(json!({ "type": "progress", "stage": "正在下载 CrispASR 推理引擎（约 20 MB）...", "pct": 0.0 }));
+            let target_variant = match body.variant.as_deref().map(str::trim).filter(|s| !s.is_empty() && *s != "auto") {
+                Some(raw) => asr::RuntimeVariant::parse(raw)
+                    .ok_or_else(|| anyhow::anyhow!("未知推理后端：{raw}"))?,
+                None => hw
+                    .recommended_variant
+                    .ok_or_else(|| anyhow::anyhow!("当前平台暂不支持离线 CrispASR（建议改用云端 ASR）"))?,
+            };
+
+            if asr::find_crispasr_variant(&state_clone.data_dir, target_variant).is_none() {
+                send(json!({
+                    "type": "progress",
+                    "stage": format!("正在下载 CrispASR {}（{}，约 {} MB）...", asr::CRISPASR_VERSION, target_variant.label(), target_variant.approx_mb()),
+                    "pct": 0.0
+                }));
                 let tx_p = tx.clone();
-                asr::install_crispasr(&state_clone.data_dir, &cancel, move |received, total| {
-                    let pct = total.filter(|&t| t > 0).map(|t| (received as f64 / t as f64) * 0.15).unwrap_or(0.05);
+                let label = target_variant.label().to_string();
+                asr::install_crispasr_variant(&state_clone.data_dir, target_variant, &cancel, move |received, total| {
+                    let frac = total.filter(|&t| t > 0).map(|t| received as f64 / t as f64).unwrap_or(0.2);
                     let _ = tx_p.send(Ok(Event::default().data(
                         json!({
                             "type": "progress",
-                            "stage": format!("正在下载 CrispASR（{:.1} MB）...", received as f64 / 1_048_576.0),
+                            "stage": format!("正在下载 CrispASR {label}（{:.1} MB）...", received as f64 / 1_048_576.0),
                             "received": received,
                             "total": total,
-                            "pct": pct,
+                            "pct": frac * 0.12,
                         })
                         .to_string(),
                     )));
@@ -1429,34 +1532,95 @@ async fn download_asr_models(
                 .await?;
             }
 
-            if asr::resolve_qwen_model(&state_clone.data_dir, Some(&model_id)).is_none() {
-                send(json!({ "type": "progress", "stage": "正在下载 Qwen3-ASR 0.6B 模型（约 960 MB）...", "pct": 0.15 }));
+            if !asr::has_vad_model(&state_clone.data_dir) {
+                send(json!({ "type": "progress", "stage": "正在下载 Silero VAD 语音切片模型（864 KB）...", "pct": 0.12 }));
                 let tx_p = tx.clone();
+                asr::download_vad_model(&state_clone.data_dir, &cancel, mirror_first, move |received, total| {
+                    let frac = total.filter(|&t| t > 0).map(|t| received as f64 / t as f64).unwrap_or(0.5);
+                    let _ = tx_p.send(Ok(Event::default().data(
+                        json!({
+                            "type": "progress",
+                            "stage": "正在下载 Silero VAD...",
+                            "received": received,
+                            "total": total,
+                            "pct": 0.12 + frac * 0.03,
+                        })
+                        .to_string(),
+                    )));
+                })
+                .await?;
+            }
+
+            if !runtime_only && asr::resolve_model(&state_clone.data_dir, Some(&model_id), &hw.recommended_model).is_none() {
+                let spec = asr::spec(&model_id).ok_or_else(|| anyhow::anyhow!("未知语音模型：{model_id}"))?;
+                send(json!({
+                    "type": "progress",
+                    "stage": format!("正在下载 {}（约 {} MB）...", spec.name, spec.size_mb),
+                    "pct": 0.15
+                }));
+                let tx_p = tx.clone();
+                let mname = spec.name.to_string();
+                let est_bytes = spec.size_mb as u64 * 1_048_576;
                 asr::download_model(&state_clone.data_dir, &model_id, &cancel, mirror_first, move |received, total| {
                     let frac = total.filter(|&t| t > 0).map(|t| received as f64 / t as f64).unwrap_or(0.0);
                     let _ = tx_p.send(Ok(Event::default().data(
                         json!({
                             "type": "progress",
                             "stage": format!(
-                                "正在下载 Qwen3-ASR 0.6B（{:.0}/{:.0} MB）",
+                                "正在下载 {}（{:.0}/{:.0} MB）",
+                                mname,
                                 received as f64 / 1_048_576.0,
-                                total.unwrap_or(960 * 1_048_576) as f64 / 1_048_576.0
+                                total.unwrap_or(est_bytes) as f64 / 1_048_576.0
                             ),
                             "received": received,
                             "total": total,
-                            "pct": 0.15 + frac * 0.85,
+                            "pct": 0.15 + frac * 0.77,
                         })
                         .to_string(),
                     )));
                 })
                 .await?;
             }
+
+            send(json!({
+                "type": "progress",
+                "stage": format!("正在用短样音试跑校验 {}...", target_variant.label()),
+                "pct": 0.93
+            }));
+            let resolved = if runtime_only {
+                asr::resolve_model(&state_clone.data_dir, None, &hw.recommended_model)
+            } else {
+                asr::resolve_model(&state_clone.data_dir, Some(&model_id), &hw.recommended_model)
+                    .or_else(|| asr::resolve_model(&state_clone.data_dir, None, &hw.recommended_model))
+            };
+            let model_pair = resolved.as_ref().map(|m| (m.path.as_path(), m.backend));
+            let tx_fb = tx.clone();
+            asr::probe_and_verify(&state_clone.data_dir, target_variant, None, model_pair, &hw, &cancel, move |lbl, rec, tot| {
+                let _ = tx_fb.send(Ok(Event::default().data(
+                    json!({
+                        "type": "progress",
+                        "stage": format!("GPU 试跑失败，正在下载 {lbl} 回退引擎（{:.1} MB）...", rec as f64 / 1_048_576.0),
+                        "received": rec,
+                        "total": tot,
+                        "pct": 0.96,
+                    })
+                    .to_string(),
+                )));
+            })
+            .await?;
+
             Ok(())
         }
         .await;
 
         match res {
-            Ok(()) => send(json!({ "type": "done", "modelId": model_id })),
+            Ok(()) => {
+                let d = state_clone.data_dir.clone();
+                let status = tokio::task::spawn_blocking(move || build_asr_status_json(&d, false))
+                    .await
+                    .unwrap_or_default();
+                send(json!({ "type": "done", "modelId": model_id, "runtime": status["runtime"] }));
+            }
             Err(err) => send(json!({ "type": "error", "message": err.to_string() })),
         }
         state_clone.finish_job(&request_id, &cancel);
@@ -1516,16 +1680,18 @@ async fn run_transcribe(
         .unwrap_or("auto")
         .to_string();
 
-    let (crisp_bin, qwen_model, cloud_cfg) = if body.engine == "cloud" {
+    let (local_model, cloud_cfg) = if body.engine == "cloud" {
         let cfg = body.cloud.clone().ok_or_else(|| anyhow::anyhow!("缺少云端语音识别配置"))?;
         cloud::resolve_key(&cfg)?;
-        (None, None, Some(cfg))
+        (None, Some(cfg))
     } else {
-        let bin = asr::find_crispasr(&state.data_dir)
-            .ok_or_else(|| anyhow::anyhow!("尚未安装 CrispASR 推理程序，请先在「设置 › 语音转写」一键下载"))?;
-        let model = asr::resolve_qwen_model(&state.data_dir, body.model_id.as_deref())
-            .ok_or_else(|| anyhow::anyhow!("尚未安装 Qwen3-ASR 离线模型，请先在「设置 › 语音转写」一键下载"))?;
-        (Some(bin), Some(model), None)
+        let hw = asr::detect_hardware(false);
+        if asr::find_any_crispasr(&state.data_dir).is_none() {
+            return Err(anyhow::anyhow!("尚未安装 CrispASR 推理程序，请先在「设置 › 字幕与转写」下载"));
+        }
+        let model = asr::resolve_model(&state.data_dir, body.model_id.as_deref(), &hw.recommended_model)
+            .ok_or_else(|| anyhow::anyhow!("所选离线语音模型尚未下载，请先在「设置 › 字幕与转写」下载"))?;
+        (Some(model), None)
     };
 
     let ctx = asr::build_asr_context(
@@ -1591,7 +1757,7 @@ async fn run_transcribe(
             return Err(anyhow::anyhow!("音频解码结果为空"));
         }
 
-        let (raw_segs, source_name) = if let Some(cfg) = cloud_cfg {
+        let (raw_segs, source_name, filter_echo) = if let Some(cfg) = cloud_cfg {
             send(json!({ "type": "progress", "stage": "正在调用云端 ASR 分片识别...", "pct": 0.28 }));
             let tx_p = tx.clone();
             let segs = cloud::transcribe(&cfg, samples, &lang, &ctx, cancel.clone(), move |p| {
@@ -1605,38 +1771,47 @@ async fn run_transcribe(
                 )));
             })
             .await?;
-            (segs, "cloud".to_string())
+            (segs, "cloud".to_string(), true)
         } else {
+            let model = local_model.as_ref().unwrap();
             let wav_path = job_dir.join("input.wav");
             let wp = wav_path.clone();
             tokio::task::spawn_blocking(move || asr::write_wav(&wp, &samples)).await??;
-            send(json!({ "type": "progress", "stage": "Qwen3-ASR 离线转写中...", "pct": 0.28 }));
+            let engine = asr::CrispAsrEngine;
+            let req = asr::LocalTranscribeRequest {
+                data_dir: &state.data_dir,
+                model,
+                wav_path: &wav_path,
+                language: &lang,
+                ctx: &ctx,
+                cancel: cancel.clone(),
+            };
             let tx_p = tx.clone();
-            let segs = asr::run_crispasr(
-                crisp_bin.as_deref().unwrap(),
-                qwen_model.as_deref().unwrap(),
-                &wav_path,
-                &lang,
-                &ctx,
-                cancel.clone(),
-                move |p| {
-                    let _ = tx_p.send(Ok(Event::default().data(
-                        json!({
-                            "type": "progress",
-                            "stage": format!("Qwen3-ASR 识别中（{:.0}%）...", p * 100.0),
-                            "pct": 0.28 + p * 0.68,
-                        })
-                        .to_string(),
-                    )));
-                },
-            )
+            let outcome = asr::AsrEngine::transcribe(&engine, req, move |stage: &str, p: Option<f64>| {
+                let pct = 0.28 + p.unwrap_or(0.0) * 0.68;
+                let _ = tx_p.send(Ok(Event::default().data(
+                    json!({
+                        "type": "progress",
+                        "stage": stage,
+                        "pct": pct,
+                    })
+                    .to_string(),
+                )));
+            })
             .await?;
-            (segs, "qwen3".to_string())
+            if outcome.fell_back_to_cpu {
+                send(json!({
+                    "type": "progress",
+                    "stage": format!("已自动回退 {} 完成转写，正在整理字幕...", outcome.used_variant.label()),
+                    "pct": 0.97,
+                }));
+            }
+            (outcome.segments, model.id.clone(), model.supports_context)
         };
 
         let filtered: Vec<Segment> = raw_segs
             .into_iter()
-            .filter(|s| ctx.background.is_empty() || !asr_context::is_echo(&s.text, &ctx.background))
+            .filter(|s| !filter_echo || ctx.background.is_empty() || !asr_context::is_echo(&s.text, &ctx.background))
             .collect();
         let segments = transcript::resegment(transcript::clean(filtered));
         if segments.is_empty() {

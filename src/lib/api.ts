@@ -108,12 +108,51 @@ export interface ImportTextResult {
   transcript: Transcript;
 }
 
+export interface AsrGpuInfo {
+  name: string;
+  vendor: string;
+  vramMb?: number | null;
+  discrete: boolean;
+}
+
+export type AsrVariant = "vulkan" | "cuda13" | "cpu" | "cpu-legacy";
+
+export interface AsrHardwareInfo {
+  os: string;
+  arch: string;
+  avx2: boolean;
+  windowsArm64: boolean;
+  gpus: AsrGpuInfo[];
+  hasDiscreteGpu: boolean;
+  hasNvidia: boolean;
+  recommendedVariant?: AsrVariant | null;
+  recommendedModel: string;
+  summary: string;
+}
+
+export interface AsrRuntimeInfo {
+  version: string;
+  activeVariant?: AsrVariant | null;
+  preferredVariant?: AsrVariant | null;
+  installedVariants: AsrVariant[];
+  deviceIndex?: number | null;
+  gpuName?: string | null;
+  verified: boolean;
+  fallbackReason?: string | null;
+}
+
 export interface AsrModelEntry {
   id: string;
   name: string;
+  tier: "fast" | "balanced" | "accurate";
+  backend: "sensevoice" | "qwen3";
+  fileName: string;
   sizeMb: number;
   note: string;
+  license: string;
+  supportsContext: boolean;
   installed: boolean;
+  recommended: boolean;
   from?: string | null;
 }
 
@@ -124,6 +163,9 @@ export interface AsrModelsStatus {
   modelReady: boolean;
   engineReady: boolean;
   ytdlpReady: boolean;
+  vadReady: boolean;
+  hardware?: AsrHardwareInfo;
+  runtime?: AsrRuntimeInfo;
   models: AsrModelEntry[];
 }
 
@@ -329,9 +371,17 @@ export const api = {
     })),
 
   getAsrModels: () => requestJson<AsrModelsStatus>("/api/asr/models"),
+  probeAsrRuntime: (opts?: { variant?: string; deviceIndex?: number; forceHardware?: boolean }) =>
+    requestJson<AsrModelsStatus & { needsDownload?: boolean; variant?: AsrVariant; approxMb?: number }>("/api/asr/probe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(opts ?? {}),
+    }),
   downloadAsrModel: async (opts: {
     requestId: string;
     modelId?: string;
+    variant?: string;
+    runtimeOnly?: boolean;
     signal?: AbortSignal;
     onProgress: (p: ProgressEvent) => void;
   }): Promise<void> => {
@@ -339,7 +389,13 @@ export const api = {
       url: "/api/asr/models/download",
       requestId: opts.requestId,
       signal: opts.signal,
-      body: { requestId: opts.requestId, modelId: opts.modelId ?? "qwen3-asr", mirrorFirst: true },
+      body: {
+        requestId: opts.requestId,
+        modelId: opts.modelId,
+        variant: opts.variant,
+        runtimeOnly: opts.runtimeOnly ?? false,
+        mirrorFirst: true,
+      },
       onEvent: (ev) => {
         if (ev.type === "progress") {
           opts.onProgress({
@@ -355,7 +411,8 @@ export const api = {
   transcribeEpisode: async (opts: {
     episodeId: string;
     requestId: string;
-    engine: "qwen3" | "cloud";
+    engine: "local" | "qwen3" | "cloud";
+    modelId?: string;
     language: string;
     cloud?: CloudAsrConfig;
     signal?: AbortSignal;
@@ -369,6 +426,7 @@ export const api = {
       body: {
         requestId: opts.requestId,
         engine: opts.engine,
+        modelId: opts.modelId,
         language: opts.language,
         cloud: opts.cloud,
       },

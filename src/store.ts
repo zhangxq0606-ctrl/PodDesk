@@ -83,6 +83,29 @@ const DEFAULT_PREFS: Prefs = {
   chatInstructionEnabled: true,
 };
 
+export function resolveLocalModelId(choice: string, status: AsrModelsStatus | null): string {
+  if (choice.startsWith("local:")) {
+    const id = choice.slice(6).trim();
+    if (id) return id;
+  }
+  if (choice === "qwen3" || choice === "qwen3-asr") {
+    const installedRec = status?.models.find((m) => m.recommended && m.installed);
+    if (installedRec) return installedRec.id;
+    const anyInstalled = status?.models.find((m) => m.installed);
+    if (anyInstalled) return anyInstalled.id;
+    return status?.hardware?.recommendedModel || status?.modelId || "qwen3-0.6b";
+  }
+  return status?.hardware?.recommendedModel || status?.modelId || "qwen3-0.6b";
+}
+
+function normalizeAsrChoice(raw: string | undefined, status: AsrModelsStatus | null): string {
+  if (!raw || raw === "qwen3" || raw === "qwen3-asr") {
+    const id = resolveLocalModelId("qwen3", status);
+    return `local:${id}`;
+  }
+  return raw;
+}
+
 function readPrefs(): Prefs {
   try {
     const raw = JSON.parse(localStorage.getItem(PREFS_KEY) ?? "{}") as Partial<Prefs>;
@@ -475,21 +498,27 @@ export const useStore = create<AppStore>((set, get) => ({
     for (const e of latest) cacheEntries[e.id] = e;
     for (const e of recent) cacheEntries[e.id] = e;
 
-    set((s) => ({
-      ready: true,
-      health,
-      shows,
-      recentEpisodes: recent,
-      latestEpisodes: latest,
-      episodeCache: { ...s.episodeCache, ...cacheEntries },
-      agents,
-      asrStatus,
-      hasCookies: cookiesRes.hasCookies,
-      providerOverrides: overrides,
-      verifiedAgents,
-      chatProviderId,
-      chatModel,
-    }));
+    set((s) => {
+      const nextChoice = normalizeAsrChoice(s.prefs.asrChoice, asrStatus);
+      const nextPrefs = nextChoice !== s.prefs.asrChoice ? { ...s.prefs, asrChoice: nextChoice } : s.prefs;
+      if (nextChoice !== s.prefs.asrChoice) savePrefsLocal(nextPrefs);
+      return {
+        ready: true,
+        health,
+        shows,
+        recentEpisodes: recent,
+        latestEpisodes: latest,
+        episodeCache: { ...s.episodeCache, ...cacheEntries },
+        agents,
+        asrStatus,
+        prefs: nextPrefs,
+        hasCookies: cookiesRes.hasCookies,
+        providerOverrides: overrides,
+        verifiedAgents,
+        chatProviderId,
+        chatModel,
+      };
+    });
 
     const presets = buildProviders(agents, overrides, verifiedAgents).filter((p) => p.needsKey);
     const [keyEntries, asrKeyEntries] = await Promise.all([

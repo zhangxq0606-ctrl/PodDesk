@@ -11,7 +11,7 @@ import {
 } from "./ai";
 import { api, type ChatMessage, type Episode, type ProviderConfig, type Transcript } from "./api";
 import { CLOUD_ASR_PRESETS } from "./providers";
-import { useStore } from "../store";
+import { resolveLocalModelId, useStore } from "../store";
 
 export interface ArchivedChat {
   id: string;
@@ -481,9 +481,13 @@ export async function runTranscribe(ep: Episode): Promise<void> {
   const lang = store.prefs.asrLang;
   const isCloud = choice.startsWith("cloud:");
   const cloudPreset = isCloud ? CLOUD_ASR_PRESETS.find((p) => p.id === choice.slice(6)) : undefined;
+  const localModelId = isCloud ? undefined : resolveLocalModelId(choice, store.asrStatus);
+  const localEntry = localModelId ? store.asrStatus?.models.find((m) => m.id === localModelId) : undefined;
 
-  if (!isCloud && store.asrStatus && !(store.asrStatus.engineReady && store.asrStatus.modelReady)) {
-    putAsr(ep.id, { error: "本机 Qwen3-ASR 尚未安装。请前往「设置 › 字幕与转写」一键下载。" });
+  if (!isCloud && store.asrStatus && (!store.asrStatus.engineReady || (localEntry ? !localEntry.installed : !store.asrStatus.modelReady))) {
+    putAsr(ep.id, {
+      error: `本机离线模型「${localEntry?.name ?? localModelId ?? "语音模型"}」或 CrispASR 尚未安装，请前往「设置 › 字幕与转写」下载。`,
+    });
     return;
   }
   if (isCloud && cloudPreset) {
@@ -505,7 +509,8 @@ export async function runTranscribe(ep: Episode): Promise<void> {
     const tr = await api.transcribeEpisode({
       episodeId: ep.id,
       requestId: crypto.randomUUID(),
-      engine: isCloud ? "cloud" : "qwen3",
+      engine: isCloud ? "cloud" : "local",
+      modelId: localModelId,
       language: lang,
       cloud: cloudPreset
         ? {
@@ -522,6 +527,7 @@ export async function runTranscribe(ep: Episode): Promise<void> {
         putAsr(ep.id, { stage: p.stage, pct: p.pct });
       },
     });
+    if (!isCloud) void store.refreshAsrStatus().catch(() => {});
     useJobs.setState((s) => ({
       transcripts: { ...s.transcripts, [ep.id]: tr },
       officialStatus: { ...s.officialStatus, [ep.id]: "ok" },

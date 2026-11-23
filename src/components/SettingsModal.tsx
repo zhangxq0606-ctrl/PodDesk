@@ -1,10 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Captions,
   Check,
   ChevronDown,
   Copy,
-  Download,
   ExternalLink,
   Globe,
   Keyboard,
@@ -14,7 +13,6 @@ import {
   RefreshCw,
   Search,
   Sparkles,
-  Square,
   Sun,
   TerminalSquare,
   Trash2,
@@ -23,8 +21,7 @@ import {
 } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { api, type AgentModel, type FoundAgent, type ProviderConfig } from "../lib/api";
-import { formatBytes } from "../lib/format";
-import { AGENT_META, CLOUD_ASR_PRESETS, CORE_PRESETS } from "../lib/providers";
+import { AGENT_META, CORE_PRESETS } from "../lib/providers";
 import {
   DARK_THEMES,
   getDarkThemeMeta,
@@ -35,6 +32,8 @@ import {
   type ThemeMeta,
 } from "../lib/themes";
 import { useStore, type SettingsSection, type ThemeMode } from "../store";
+import { AsrSettingsSection } from "./settings/AsrSettingsSection";
+import { KeyStatusRow } from "./settings/KeyStatusRow";
 
 const CLI_STATUS: Record<FoundAgent["login"], { text: string; tone: "ok" | "warn" | "idle" }> = {
   ready: { text: "可用", tone: "ok" },
@@ -980,92 +979,16 @@ function AiSettingsSection() {
   );
 }
 
-function KeyStatusRow({
-  has,
-  value,
-  onValue,
-  onSave,
-  onDelete,
-  placeholder,
-}: {
-  has: boolean;
-  value: string;
-  onValue: (v: string) => void;
-  onSave: () => Promise<void>;
-  onDelete: () => Promise<void>;
-  placeholder: string;
-}) {
-  const [editing, setEditing] = useState(false);
-
-  if (has && !editing) {
-    return (
-      <div className="key-saved">
-        <span className="ok-text small">
-          <Check size={14} /> 已保存至系统钥匙串 (••••••••••••)
-        </span>
-        <span className="spacer" />
-        <button type="button" className="btn sm" onClick={() => setEditing(true)}>
-          更换
-        </button>
-        <button
-          type="button"
-          className="btn sm ghost"
-          onClick={() => void onDelete()}
-        >
-          清除
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="key-row">
-      <input
-        type="password"
-        value={value}
-        onChange={(e) => onValue(e.target.value)}
-        placeholder={placeholder}
-        autoFocus={editing}
-      />
-      <button
-        type="button"
-        className="btn sm primary"
-        disabled={!value.trim()}
-        onClick={() => {
-          void onSave().then(() => setEditing(false));
-        }}
-      >
-        保存
-      </button>
-      {editing && (
-        <button
-          type="button"
-          className="btn sm ghost"
-          onClick={() => {
-            onValue("");
-            setEditing(false);
-          }}
-        >
-          取消
-        </button>
-      )}
-    </div>
-  );
-}
-
 export function SettingsModal() {
   const {
     open,
     section,
     health,
-    asrKeyStatus,
-    asrStatus,
     hasCookies,
     prefs,
     closeSettings,
     openSettings,
     refreshAsrStatus,
-    saveAsrKey,
     saveCookies,
     savePrefs,
     bootstrap,
@@ -1074,28 +997,16 @@ export function SettingsModal() {
       open: s.settingsOpen,
       section: s.settingsSection,
       health: s.health,
-      asrKeyStatus: s.asrKeyStatus,
-      asrStatus: s.asrStatus,
       hasCookies: s.hasCookies,
       prefs: s.prefs,
       closeSettings: s.closeSettings,
       openSettings: s.openSettings,
       refreshAsrStatus: s.refreshAsrStatus,
-      saveAsrKey: s.saveAsrKey,
       saveCookies: s.saveCookies,
       savePrefs: s.savePrefs,
       bootstrap: s.bootstrap,
     })),
   );
-
-  const [dlBusy, setDlBusy] = useState(false);
-  const [dlInfo, setDlInfo] = useState<{ stage: string; pct?: number; received?: number; total?: number } | null>(null);
-  const [dlMsg, setDlMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  const dlAbortRef = useRef<AbortController | null>(null);
-
-  const [asrId, setAsrId] = useState("doubao");
-  const [asrKeyInput, setAsrKeyInput] = useState("");
-  const [asrMsg, setAsrMsg] = useState<string | null>(null);
 
   const [proxyInput, setProxyInput] = useState("");
   const [proxyMsg, setProxyMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -1106,8 +1017,6 @@ export function SettingsModal() {
     if (!open) return;
     setProxyInput(health?.configuredProxy ?? "");
     setProxyMsg(null);
-    setDlMsg(null);
-    setAsrMsg(null);
     setCookieMsg(null);
     void refreshAsrStatus().catch(() => {});
   }, [open, health?.configuredProxy, refreshAsrStatus]);
@@ -1134,35 +1043,6 @@ export function SettingsModal() {
   const effectiveMode = resolveEffectiveMode(prefs.theme);
   const activeThemeName =
     effectiveMode === "dark" ? getDarkThemeMeta(prefs.darkTheme).name : getLightThemeMeta(prefs.lightTheme).name;
-
-  const activeAsr = CLOUD_ASR_PRESETS.find((p) => p.id === asrId) ?? CLOUD_ASR_PRESETS[0];
-
-  const handleDownloadQwen = async () => {
-    if (dlBusy) return;
-    const ctrl = new AbortController();
-    dlAbortRef.current = ctrl;
-    setDlBusy(true);
-    setDlMsg(null);
-    setDlInfo({ stage: "准备下载 CrispASR 与 Qwen3-ASR 0.6B..." });
-    try {
-      await api.downloadAsrModel({
-        requestId: crypto.randomUUID(),
-        modelId: "qwen3-asr",
-        signal: ctrl.signal,
-        onProgress: (p) => setDlInfo({ stage: p.stage, pct: p.pct, received: p.received, total: p.total }),
-      });
-      await refreshAsrStatus();
-      setDlMsg({ ok: true, text: "离线 Qwen3-ASR 0.6B 与 CrispASR 引擎已就绪" });
-    } catch (err) {
-      if (!(err instanceof DOMException && err.name === "AbortError")) {
-        setDlMsg({ ok: false, text: err instanceof Error ? err.message : "下载失败" });
-      }
-    } finally {
-      dlAbortRef.current = null;
-      setDlBusy(false);
-      setDlInfo(null);
-    }
-  };
 
   const handleSaveProxy = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1324,124 +1204,7 @@ export function SettingsModal() {
                 </>
               )}
 
-              {section === "asr" && (
-                <>
-                  <section className="setup-block">
-                    <div className="row-between">
-                      <p className="setup-title">本机离线转写（Qwen3-ASR 0.6B）</p>
-                      <button
-                        type="button"
-                        className="btn sm ghost"
-                        onClick={() => void refreshAsrStatus()}
-                        disabled={dlBusy}
-                      >
-                        <RefreshCw size={13} /> 刷新状态
-                      </button>
-                    </div>
-                    <div className="model-item on">
-                      <div style={{ flex: 1 }}>
-                        <p style={{ fontWeight: 600 }}>Qwen3-ASR 0.6B + CrispASR</p>
-                        <p className="muted small">约 960 MB · 音频不出本机 · 中英文混说均准确</p>
-                      </div>
-                      <span className={`pill ${asrStatus?.engineReady && asrStatus?.modelReady ? "ok" : ""}`}>
-                        {asrStatus?.engineReady && asrStatus?.modelReady ? "已就绪" : "未下载"}
-                      </span>
-                      {dlBusy ? (
-                        <button
-                          type="button"
-                          className="btn sm danger"
-                          onClick={() => dlAbortRef.current?.abort()}
-                        >
-                          <Square size={12} /> 取消
-                        </button>
-                      ) : !(asrStatus?.engineReady && asrStatus?.modelReady) ? (
-                        <button type="button" className="btn sm primary" onClick={() => void handleDownloadQwen()}>
-                          <Download size={13} /> 一键下载安装
-                        </button>
-                      ) : null}
-                    </div>
-                    {dlInfo && (
-                      <div className="stack" style={{ marginTop: 8 }}>
-                        <div className="row-between small muted">
-                          <span>{dlInfo.stage}</span>
-                          {dlInfo.total ? (
-                            <span>
-                              {formatBytes(dlInfo.received)} / {formatBytes(dlInfo.total)} (
-                              {Math.round(((dlInfo.received ?? 0) / dlInfo.total) * 100)}%)
-                            </span>
-                          ) : typeof dlInfo.pct === "number" ? (
-                            <span>{Math.round(dlInfo.pct * 100)}%</span>
-                          ) : null}
-                        </div>
-                        <div className="bar">
-                          <div
-                            style={{
-                              width: `${
-                                dlInfo.total
-                                  ? Math.max(3, ((dlInfo.received ?? 0) / dlInfo.total) * 100)
-                                  : typeof dlInfo.pct === "number"
-                                    ? Math.max(3, dlInfo.pct * 100)
-                                    : 20
-                              }%`,
-                            }}
-                          />
-                        </div>
-                      </div>
-                    )}
-                    {dlMsg && <p className={dlMsg.ok ? "ok-text small" : "error-text small"}>{dlMsg.text}</p>}
-                  </section>
-
-                  <section className="setup-block">
-                    <p className="setup-title">云端语音识别 API Key（按需可选）</p>
-                    <div className="provider-tabs">
-                      {CLOUD_ASR_PRESETS.map((p) => (
-                        <button
-                          key={p.id}
-                          type="button"
-                          className={`chip ${asrId === p.id ? "on" : ""}`}
-                          onClick={() => {
-                            setAsrId(p.id);
-                            setAsrKeyInput("");
-                            setAsrMsg(null);
-                          }}
-                        >
-                          {p.name}
-                        </button>
-                      ))}
-                    </div>
-                    <div className="provider-form">
-                      <div className="row-between">
-                        <span className="muted small">{activeAsr.note}</span>
-                        {activeAsr.keyUrl && (
-                          <a className="link-btn" href={activeAsr.keyUrl} target="_blank" rel="noreferrer">
-                            申请 Key <ExternalLink size={11} />
-                          </a>
-                        )}
-                      </div>
-                      {activeAsr.needsKey ? (
-                        <KeyStatusRow
-                          has={!!asrKeyStatus[activeAsr.id]}
-                          value={asrKeyInput}
-                          onValue={setAsrKeyInput}
-                          placeholder={`输入 ${activeAsr.name} API Key`}
-                          onSave={async () => {
-                            await saveAsrKey(activeAsr.id, asrKeyInput.trim());
-                            setAsrKeyInput("");
-                            setAsrMsg("云端识别 Key 已更新");
-                          }}
-                          onDelete={async () => {
-                            await saveAsrKey(activeAsr.id, "");
-                            setAsrMsg("已清除该 Key");
-                          }}
-                        />
-                      ) : (
-                        <p className="muted small">该服务免 Key，接口地址：{activeAsr.baseUrl}</p>
-                      )}
-                      {asrMsg && <p className="ok-text small">{asrMsg}</p>}
-                    </div>
-                  </section>
-                </>
-              )}
+              {section === "asr" && <AsrSettingsSection />}
 
               {section === "ai" && <AiSettingsSection />}
 

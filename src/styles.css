@@ -4672,15 +4672,55 @@ mark {
 .model-item {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 10px;
-  padding: 12px;
+  padding: 11px 12px;
   border-radius: 10px;
+  background: var(--panel);
   border: 1px solid var(--line);
 }
 
 .model-item.on {
   background: var(--bg);
   border-color: var(--line-strong);
+}
+
+.asr-hw-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 11px 13px;
+  border-radius: 10px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+}
+
+.asr-variant-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.asr-tier-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.model-item-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.asr-license {
+  font-size: 11px;
+  color: var(--muted);
+  opacity: 0.9;
 }
 
 .agent-list {

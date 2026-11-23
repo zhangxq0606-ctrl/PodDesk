@@ -3,18 +3,24 @@ lifecycle: bootstrap
 foundation: pending
 active_goal: null
 work_status: active
-last_verified: 2026-11-22
+last_verified: 2026-11-23
 ---
 
 # 当前里程碑
 
-阶段 1（单集视频工作台）、阶段 2（单集音频/纯文稿工作台）与阶段 3（首页、订阅与频道详情页）已落地并通过编译与单元测试，**待船长重启本地服务后在浏览器统一试玩验收**；后续依次为阶段 4（无字幕 ASR 选型与闭环）、阶段 5（深色模式总检与首版验收/首次 commit）与阶段 6（二期知识沉淀导出）。
+阶段 1（单集视频工作台）、阶段 2（单集音频/纯文稿工作台）、阶段 3（首页、订阅与频道详情页）、全站 8 套浅深多主题精修，以及**阶段 4（三档本地离线 ASR + CrispASR v0.8.55 硬件探测回退）**均已落地并通过编译、单测、真机下载/转写/回退与界面实测；下一步推进阶段 5（窄屏 `<900px` 响应排布、首版总检与提交）及后续阶段 6（二期知识沉淀导出）。
 
 # 已验证能力
 
 - **全量编译与静态检查**：
-  - 前端：`npm run typecheck`（`tsc --noEmit`）与 `npm run build`（Vite 6 打包 `dist/index.html`、`dist/assets/index-D9nbITPe.css`、`dist/assets/index-XR5nO-Lv.js`）退出 0；
-  - 后端（无 `CMake`/`LLVM`、无 `whisper-rs`、无 `tauri`）：`cargo test` 零警告通过（**39 passed, 0 failed, 1 ignored**，涵盖 `db` 含 `completed` 迁移回填、7 天新更计数、批量标已看与单集级联删除、`net`、`feeds`、`youtube` 含频道/片单 `ytInitialData` 与 Shorts 过滤、`transcript`、`translate`、`llm`、`agents`、`asr_context`、`asr`、`cloud`、`routes`），`cargo build` 退出 0 产出 `server/target/debug/podcast-desk.exe`。
+  - 前端：`npm run typecheck`（`tsc --noEmit`）与 `npm run build`（Vite 6 打包 `dist/index.html`、`dist/assets/index-Bie0f5ui.css`、`dist/assets/index-BuWk6S-8.js`）退出 0；
+  - 后端（无 `CMake`/`LLVM`、无 `whisper-rs`、无 `tauri`）：`cargo test` 零警告通过（**49 passed, 0 failed, 1 ignored**，涵盖 `db`、`net`、`feeds`、`youtube`、`transcript`、`translate`、`llm`、`agents`、`asr_context`、`asr::{catalog,hardware,engine,media,ytdlp}`、`cloud`、`routes`），`cargo build` 退出 0 产出 `server/target/debug/podcast-desk.exe`。
+- **阶段 4 本地离线 ASR 与硬件探测回退实测（`http://127.0.0.1:14327` + 临时隔离 `--data-dir`）**：
+  - `GET /api/asr/models` 正确识别本机 `NVIDIA GeForce RTX 5070 Ti Laptop GPU`（12,227 MiB）+ `Intel(R) Graphics` 核显并过滤 `GameViewer Virtual Display Adapter` 虚拟显示卡，推荐 `vulkan` + `qwen3-0.6b`；
+  - 实测通过 `POST /api/asr/models/download`（含 HTTP `Range` 断点续传重试）安装 `CrispASR v0.8.55`（`vulkan` + `cpu` 双变体）、Silero VAD（`ggml-silero-v6.2.0.bin`，864 KB）、`SenseVoice-Small (Q8_0)`（240 MB）与 `Qwen3-ASR 0.6B (Q4_K)`（602 MB，非 `imatrix`）至 `D:\project\podcast-desk\data\`，短样音试跑自动解析并锁定独显 `-dev 1`（`verified: true`）；
+  - 实测以真实英文演讲音频（`jfk.wav`）端到端调用 `POST /api/episodes/{id}/transcribe`：`sensevoice-small`（7.48 秒，已清洗控制标签）与 `qwen3-0.6b`（5.76 秒）均精准产出带时间戳字幕，测试临时单集测后已删除；
+  - 实测 `POST /api/asr/probe` 在 `cpu` / `vulkan` 变体间切换通过，并在独立临时 `--data-dir`（端口 `14331`）模拟 Vulkan 启动失败后，验证后端自动拉取 `CPU (AVX2)` 兜底并回写 `activeVariant: "cpu"`、`verified: true` 与回退原因（临时目录与进程已清理）；
+  - 图形浏览器（1440×900）实测 `http://127.0.0.1:14327`「设置 › 字幕与转写」浅色（暖宣纸）与深色（深夜石板）主题排版、状态标签、三档模型卡片与云端配置区，0 控制台报错、50/50 请求 HTTP 200。
 - **多源解析、字幕、检索与翻译接口实测（阶段 2–3 临时起服，临时目录与进程已清理）**：
   - `POST /api/subscriptions`（YouTube 视频链接）+ `POST /api/episodes/{id}/transcript/official`（InnerTube 拉回 20 段字幕）；
   - `GET /api/search?term=Lex+Fridman` 返回 7 条播客/频道结果；
@@ -34,8 +40,8 @@ last_verified: 2026-11-22
 
 # 待验证事项
 
-- 图形浏览器（Chrome/Edge）真实打开 `http://127.0.0.1:14327` 后的三栏交互：YouTube IFrame 与 `yt-dlp` 禁嵌回退 `<video>` 播放、段落高亮、点击回答 `[mm:ss]` 自动跳转进度、导出下载文件（`.md`/`.txt`/`.srt`/`.vtt` 与问答笔记 `.md`）以及浏览器端大模型术语精译流程；
-- 一键下载 ~960 MB `Qwen3-ASR 0.6B` 模型 + `CrispASR` 后的真机离线音视频语音转写实测；
+- 窄屏（`<900px`）响应式布局检查与无字幕单集 `NoTranscriptCard`（`local:<modelId>` + 三档引擎分组下拉框）图形浏览器实景交互；
+- 高配档 `Qwen3-ASR 1.7B (Q5_K)`（1.66 GB）及长音频播客（>30 分钟）的 Silero VAD 切句字幕密度与 `[mm:ss]` 跳转体验；
 - 豆包 / 硅基流动 / DeepSeek 等付费云端 ASR 与需配 Key 云端大模型（如 DeepSeek）/ 其他本机 CLI Agent（如 `Gemini CLI`、`Claude Code`）完整真机实测；
 - 按需粘贴真实 YouTube `cookies.txt` 后绕过 `yt-dlp` 人机验证的真机效果。
 
@@ -43,12 +49,18 @@ last_verified: 2026-11-22
 
 - `package-lock.json` 因此前官方源经代理下载超时而在安装阶段通过直连 `https://registry.npmmirror.com` 生成，内含镜像地址记录；`~/.npmrc` 未修改。
 - `db.rs` 中预留给后续二期统计/展示的 `show_notes`、`set_audio_url`、`log_listen`、`listens_since` 已标记 `#[allow(dead_code)]`，待二期启用时接上路由。
+- **架构结构债（详述与治理原则见 [ARCHITECTURE.md](ARCHITECTURE.md)「架构现状评估与演进边界」）**：`styles.css`（~5,190 行）、`routes.rs`（~1,960 行）、`ChatPanel.tsx`（1,672 行）、`SettingsModal.tsx`（已拆出 [AsrSettingsSection.tsx](src/components/settings/AsrSettingsSection.tsx) 与 [KeyStatusRow.tsx](src/components/settings/KeyStatusRow.tsx)，剩余约 1,320 行）与 `Players.tsx`（1,318 行）仍按「改到哪、拆到哪」渐进治理；前端暂无自动化单测；长播客批量翻译绑定浏览器页签不可关页续跑；面向大众分发前需补齐单实例与系统托盘包装。
 
 # 下一步
 
-当前阶段 1–3 基线已本地提交（`0434c85`），**全站外观精修与 8 套浅/深色多主题系统**已完成并经实机浏览器截图双轮验收（待船长决定是否本地提交）；明日按 [ARCHITECTURE.md](ARCHITECTURE.md) 已定案的「三档本地 ASR + CrispASR v0.8.55 探测回退」实施阶段 4。
+阶段 4（三档本地离线 ASR + `CrispASR v0.8.55` 硬件探测与 CPU 回退）已完成实施与真机验证；下一步处理窄屏 `<900px` 响应排布、长音频转写体感验证与阶段 5 首版验收收尾（以及是否将本地改动 commit）。
 
 # 最近完成
+
+- **2026-11-23（阶段 4：三档本地离线 ASR + CrispASR v0.8.55 硬件探测回退 + 顺手模块拆分）**：
+  - 后端重构与拆分（`server/src/asr/` 目录拆为 `catalog.rs` / `hardware.rs` / `engine.rs` / `media.rs` / `ytdlp.rs` / `mod.rs`，移除旧 `asr.rs`；[routes.rs](server/src/routes.rs)）：落地 `SenseVoice-Small (Q8_0)`（240 MB，FunASR v1.1 署名）、`Qwen3-ASR 0.6B (Q4_K)`（602 MB，非 `imatrix`）与 `Qwen3-ASR 1.7B (Q5_K)`（1.66 GB）三档目录及 Silero VAD（864 KB）；实现 Windows GPU 探测（过滤虚拟显示卡 + `nvidia-smi` 显存校准）、AVX2/ARM64 判定、短样音试跑锁定独显 `-dev`、GPU 失败自动安装回退 `cpu`/`cpu-legacy` 持久化（`asr-runtime.json`），以及下载 HTTP `Range` 断点续传重试，新增 `POST /api/asr/probe`。
+  - 前端拆分与升级（拆出 [KeyStatusRow.tsx](src/components/settings/KeyStatusRow.tsx) 与 [AsrSettingsSection.tsx](src/components/settings/AsrSettingsSection.tsx)，精简 [SettingsModal.tsx](src/components/SettingsModal.tsx)；同步升级 [api.ts](src/lib/api.ts)、[store.ts](src/store.ts)、[jobs.ts](src/lib/jobs.ts)、[TranscriptPanel.tsx](src/components/TranscriptPanel.tsx) 与 [styles.css](src/styles.css)）：支持硬件/加速状态展示、手动切换 Vulkan/CUDA 13/CPU 并触发校验、三档模型卡片管理与单集页分组选择；旧 `qwen3` 偏好平滑迁移为 `local:<modelId>`。
+  - 验证：`cargo test`（49 passed, 0 failed, 1 ignored）、`cargo build`、`npm run typecheck`、`npm run build` 零警告通过；实机下载 `CrispASR v0.8.55`（`vulkan` + `cpu`）、Silero VAD、`SenseVoice-Small` 与 `Qwen3-ASR 0.6B` 并跑通 `-dev 1` 独显转写、CPU 回退隔离测试及 1440×900 浅/深主题设置页浏览器核查。
 
 - **2026-11-22（全站外观质感精修 + 4 浅 / 4 深多主题与「外观」设置页）**：
   - 主题体系与零白闪启动（[themes.ts](src/lib/themes.ts)、[themes.css](src/themes.css)、[index.html](index.html)、[main.tsx](src/main.tsx)、[store.ts](src/store.ts)、[App.tsx](src/App.tsx)）：实现三轴解耦偏好（`theme: system/light/dark` + `lightTheme` + `darkTheme`），内置 4 套浅色（暖宣纸 / 晨光极简 / 柔雾青笺 / 柔杏书房）与 4 套深色（暖炭书房 / 深夜石板 / 黑曜影院 / 松烟墨绿）；`index.html` 首屏同步脚本消除深色刷新白闪。

@@ -18,7 +18,7 @@
 
 ## 当前技术基线
 
-> 当前已完成首版 MVP（阶段 1–5）核心后端与浏览器工作台代码落地与自动化构建/接口冒烟，处于 `bootstrap` 收尾等待船长试玩验收阶段；**未纳入首版的共享飞轮、深度知识整理多模板与 Obsidian 直写仍未引入**。
+> 当前已完成首版 MVP（阶段 1–3）与全站 8 主题外观精修（`033a8f2`），手写源码约 **25,307 行**（43 文件；前端 TS/TSX/CSS/HTML 17,674 行占 69.8%，后端 Rust 7,633 行占 30.2%）；**未纳入首版的共享飞轮、深度知识整理多模板与 Obsidian 直写仍未引入**。
 
 - **本地后端（已实现并编译通过）**：Rust（Edition 2024，`server/`），`axum 0.8`（REST + Multipart 512 MB 上传 + SSE）+ `tower-http` 静态资源与 Range 媒体流托管，内嵌 `rusqlite`（SQLite WAL 7 表）、`reqwest`（rustls + 系统/手动代理）、`symphonia 0.5`（纯 Rust 音频解码）、外部子进程调度（GitHub 官方源 `yt-dlp` + 可选 `youtube-cookies.txt`、`CrispASR` / `Qwen3-ASR 0.6B`、7 种本机 CLI Agent）。零 `tauri` 与 `whisper-rs` 依赖。
 - **前端工作台（已实现并打包通过）**：React 19 + TypeScript + Vite 6 + Zustand（`src/`），借鉴上游 SubCast 空间架构的暖纸面工作台（支持浅/深色切换、可折叠侧栏与栏间拖拽调宽、浏览首页/频道详情与沉浸单集双态、底部迷你播放器、统一播放控制条与音频分句大字幕舞台、Show Notes 时间戳跳转、渐进显露字幕栏 + `Ctrl+F` 稿内搜索 + 术语表编辑、划词悬浮问 AI/复制/翻译、独立导读页与带播放位置感知的在场感问答 + 对话历史归档、4 分区设置弹窗）；含 `src/lib/ai.ts`、`src/lib/jobs.ts`、`src/lib/providers.ts` 与 `src/lib/subexport.ts`。
@@ -70,7 +70,7 @@
   - 基础与设置：`GET /api/health`、`GET/POST /api/settings`、`GET/POST /api/keys/{provider}`（只返回 `{ hasKey }`）、`GET/POST /api/cookies`（只返回 `{ hasCookies }`）。
   - 检索与订阅：`GET /api/search`、`GET /api/shows`、`DELETE /api/shows/{id}`、`POST /api/shows/{id}/refresh`、`POST /api/subscriptions`。
   - 单集与媒体：`GET /api/episodes`、`GET /api/episodes/recent`、`GET /api/episodes/{id}`、`DELETE /api/episodes/{id}`、`POST /api/episodes/{id}/progress`、`GET /api/episodes/{id}/stream-url`、`POST /api/episodes/import-text`、`POST /api/episodes/import-media`（multipart 最高 512 MB）、`GET /api/media/{file}`（支持 HTTP `206` 拖动）。
-  - 字幕/翻译/Agent：`GET /api/episodes/{id}/transcript`、`POST /api/episodes/{id}/transcript/official`、`GET/POST /api/episodes/{id}/blobs/{kind}`、`POST /api/translate/google`、`GET /api/asr/models`、`GET /api/agents`、`POST /api/agents/warm`、`POST /api/agents/probe`、`POST /api/agents/models`。
+  - 字幕/翻译/Agent：`GET /api/episodes/{id}/transcript`、`POST /api/episodes/{id}/transcript/official`、`GET/POST /api/episodes/{id}/blobs/{kind}`、`POST /api/translate/google`、`GET /api/asr/models`、`POST /api/asr/probe`、`GET /api/agents`、`POST /api/agents/warm`、`POST /api/agents/probe`、`POST /api/agents/models`。
 - **SSE 流式接口与取消**：`POST /api/llm/chat`、`POST /api/asr/models/download`、`POST /api/episodes/{id}/transcribe` 均推送 JSON `data:` 事件（`delta`/`progress`/`done`/`error`），并统一配合 `POST /api/jobs/{id}/cancel` 取消后台任务。
 - **本地凭据边界**：API Key 存入操作系统钥匙串（服务名 `podcast-desk`），可选 `cookies.txt` 仅写本机 `<data_dir>/youtube-cookies.txt`；接口层绝不回传明文凭证。
 
@@ -85,10 +85,21 @@
 | 共享字幕飞轮留接口暂不上线、零海外服务器 | 冷启动期单集重叠率低，首版专注单机闭环；未来推广期可用国内 2核2G 服务器托管纯文本共享库 | 首版跳过服务端部署与运维，不引入跨机状态复杂度 | **船长已确认方向，暂缓实施** |
 | 首版聚焦高效嵌入 AI Agent，暂缓重度知识整理与 HackerTube 细节 | 防止首版范围膨胀，先把核心取稿、双语与在场感问答打牢 | 深度多视角 Markdown 沉淀、Obsidian 直写及快捷键增强留作核心工作台跑通后的迭代项 | **船长已确认方向，延后至二期** |
 | 信源增补纯文本/`.srt`/`.vtt`与本地音视频导入；前端预设精简为核心厂商 | 零反爬成本覆盖 B 站/课程等平台外内容；避免维护近 30 家冷门厂商硬编码模型名 | 底层 OpenAI/Anthropic/CLI 协议保持 100% 兼容，界面与维护更清爽 | **已实测 `.srt` / 纯文本 / `.wav` 上传与 `Range 206` 播放持久化** |
-| 阶段 4 离线 ASR 采用统一 CrispASR v0.8.55 + 按硬件分层的三档本地模型（砍掉 Whisper 档） | 面向大众分发（Mac Apple Silicon/Intel + Windows 核显/独显）兼顾速度、中英混说与术语上下文：纯 CPU 轻薄本/Intel Mac 默认 `SenseVoice-Small`（`Q8_0`, 240 MB, FunASR v1.1 仅运行时在线下载+署名）；M 芯片 Mac / GPU Windows 默认 `Qwen3-ASR 0.6B`（普通 `Q4_K`, 602 MB, Apache-2.0, 2026-07 重烤锁 Q8_0 编码器, 禁用 `imatrix`）；高配独显/16 GB+ Mac 可选 `Qwen3-ASR 1.7B`（`Q5_K`, 1.66 GB, Apache-2.0）。Qwen3 已覆 30 语种 + 22 方言，无需自带 Whisper | Rust 侧抽 `AsrEngine` 边界并以子进程隔离 `CrispASR v0.8.55`；Windows 不依赖 Vulkan 自动回退（vulkan 构建无 CPU 回退），改由后端硬件探测 + 独显选卡（`-dev`）+ 短样音试跑 + 自动回退 `cpu`（9.3 MB）/ `cpu-legacy`（8.7 MB）（N 卡可选 CUDA 13）；首版靠 VAD 细粒度停顿切片满足句级字幕与 `[mm:ss]` 跳转，不强绑 500 MB ForcedAligner；Windows ARM64 首版走云端兜底 | **船长已确认选型与路线（2026-11-22 交叉调研定案），待明日阶段 4 施工与真机实测** |
+| 阶段 4 离线 ASR 采用统一 CrispASR v0.8.55 + 按硬件分层的三档本地模型（砍掉 Whisper 档） | 面向大众分发（Mac Apple Silicon/Intel + Windows 核显/独显）兼顾速度、中英混说与术语上下文：纯 CPU 轻薄本/Intel Mac 默认 `SenseVoice-Small`（`Q8_0`, 240 MB, FunASR v1.1 仅运行时在线下载+署名）；M 芯片 Mac / GPU Windows 默认 `Qwen3-ASR 0.6B`（普通 `Q4_K`, 602 MB, Apache-2.0, 2026-07 重烤锁 Q8_0 编码器, 禁用 `imatrix`）；高配独显/16 GB+ Mac 可选 `Qwen3-ASR 1.7B`（`Q5_K`, 1.66 GB, Apache-2.0）。Qwen3 已覆 30 语种 + 22 方言，无需自带 Whisper | Rust 侧已将 `asr.rs` 拆分为 `asr/{catalog,hardware,engine,media,ytdlp,mod}.rs` 并抽 `AsrEngine` 边界隔离 `CrispASR v0.8.55`；Windows 经硬件探测 + 独显选卡（`-dev`）+ 短样音试跑 + 自动回退 `cpu`（9.3 MB）/ `cpu-legacy`（8.7 MB）（N 卡可选 CUDA 13）；统一启用 Silero VAD（864 KB）停顿切句，不强绑 500 MB ForcedAligner；Windows ARM64 首版走云端兜底 | **已实施并真机验证（2026-11-23）：`RTX 5070 Ti` 自动锁定 `-dev 1` Vulkan、双模型真机转写与强制 CPU 回退均实测通过** |
 
 ## 待验证假设
 
 - 图形浏览器原生打开 `http://127.0.0.1:14327` 后，YouTube IFrame 播放、禁嵌时 `yt-dlp` 直链 `<video>` 回退及 `[mm:ss]` 点击跳转播放的真机体验（待船长试玩实测）。
 - 真实下载 ~960 MB `Qwen3-ASR 0.6B` 与 `CrispASR` 后在 Windows 离线转写长音视频的速度与准确率（待试玩实测）。
 - 除已实测的 `Codex` 外，其余 CLI Agent（`Claude Code`/`Gemini CLI` 等）及需配 Key 云端大模型/云端 ASR 在真实使用中的端到端表现（待试玩实测）。
+
+## 架构现状评估与演进边界
+
+基于当前 `033a8f2` 代码基线（25,307 行，前端 69.8% / 后端 30.2%）的结构复盘结论：现有「本地 Rust 稳态后端 + 浏览器工作台 + 重型外部工具子进程隔离 + SQLite/系统钥匙串本地存储」底座足以支撑阶段 4（多档离线 ASR）与二期知识沉淀，**无需更换框架或推倒重构**，但存在以下 4 项已知结构边界与治理约束：
+
+| 结构短板 / 边界 | 现状依据 | 影响与治理原则 |
+|---|---|---|
+| **核心单文件巨石化** | `src/styles.css`（~5,190 行）、`server/src/routes.rs`（~1,960 行）、`src/components/ChatPanel.tsx`（1,672 行）、`src/components/Players.tsx`（1,318 行）；`asr.rs` 已拆为 `server/src/asr/` 六子模块，`SettingsModal.tsx` 已拆出 `src/components/settings/` 下的 `AsrSettingsSection` 与 `KeyStatusRow` | 耦合加重且局部修改误伤风险上升；**不单开停工大重构，遵循「改到哪、拆到哪」**——后续触及上述文件时顺手按职责抽离独立子模块（如设置页其余页签、`routes.rs` 按业务域分模块、`styles.css` 按域拆分） |
+| **长耗时 AI 任务绑定浏览器页签** | 术语抽取、分批字幕精译与流式问答状态完全由前端维护 | 刷新或关闭浏览器页签会中断长播客批量翻译；首版接受此边界，待长播客后台续跑成为刚需时再下沉至 Rust 任务队列 |
+| **前后端测试覆盖失衡** | 后端 Rust 有 39 个单元测试；前端 17,674 行仅做 `tsc` 类型检查、零自动化单测 | 字幕分批容错、时间轴匹配、多格式导出等纯逻辑回归成本高；面向公开发布前优先为 `src/lib/` 纯逻辑补齐轻量单测 |
+| **进程形态缺桌面级收口** | 当前通过命令行/双击可执行文件拉起本地服务后打开浏览器访问 `127.0.0.1:14327` | 非技术用户易误关终端或不知后台进程常驻；面向大众分发前补齐单实例防多开、无黑框系统托盘与端口冲突自适应 |

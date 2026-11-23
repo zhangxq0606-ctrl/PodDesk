@@ -32,7 +32,7 @@ import {
 } from "../lib/jobs";
 import { CLOUD_ASR_PRESETS } from "../lib/providers";
 import { buildBlocks, downloadTextFile, renderTranscript, safeFileName, type SubFormat } from "../lib/subexport";
-import { useStore } from "../store";
+import { resolveLocalModelId, useStore } from "../store";
 import { CassetteArt, WaveToTextArt } from "./Illustrations";
 
 export function activeIndex(segments: Segment[], time: number): number {
@@ -301,7 +301,18 @@ function NoTranscriptCard({ ep }: { ep: Episode }) {
   const hasMedia = !!(ep.audioUrl || ep.videoId);
   const isCloud = asrChoice.startsWith("cloud:");
   const cloudPreset = isCloud ? CLOUD_ASR_PRESETS.find((p) => p.id === asrChoice.slice(6)) : undefined;
-  const localReady = !!(asrStatus?.engineReady && asrStatus?.modelReady);
+  const localModels = asrStatus?.models ?? [];
+  const localModelId = resolveLocalModelId(asrChoice, asrStatus);
+  const selectedLocalModel = localModels.find((m) => m.id === localModelId) ?? localModels[0];
+  const localSelectValue = isCloud ? `local:${localModelId}` : `local:${selectedLocalModel?.id ?? localModelId}`;
+  const localReady = Boolean(asrStatus?.engineReady && (selectedLocalModel ? selectedLocalModel.installed : asrStatus?.modelReady));
+  const variantTag = asrStatus?.runtime?.activeVariant
+    ? asrStatus.runtime.activeVariant === "vulkan"
+      ? "Vulkan GPU 加速"
+      : asrStatus.runtime.activeVariant === "cuda13"
+        ? "CUDA 13 加速"
+        : "CPU 推理"
+    : "本地离线";
   const cloudReady =
     !cloudPreset ||
     !cloudPreset.needsKey ||
@@ -316,7 +327,7 @@ function NoTranscriptCard({ ep }: { ep: Episode }) {
         <p className="muted small">
           {isCloud
             ? `使用「${cloudPreset?.name ?? "云端 ASR"}」转写，速度更快（音频会发送至所选服务）。`
-            : "使用本机 Qwen3-ASR 0.6B 离线转写，音频不出本机，中英文均准确。"}
+            : `使用本机「${selectedLocalModel?.name ?? "离线模型"}」（${variantTag}）转写，音频不出本机。`}
         </p>
 
         {officialError && <p className="error-text small">官方字幕读取失败：{officialError}</p>}
@@ -349,7 +360,7 @@ function NoTranscriptCard({ ep }: { ep: Episode }) {
               <Mic size={15} />
               <span>
                 {!isCloud && !localReady
-                  ? "去下载离线 Qwen3-ASR"
+                  ? `去下载 ${selectedLocalModel?.name.split(" (")[0] ?? "离线模型"}`
                   : isCloud && !cloudReady
                     ? "去填写云端 ASR Key"
                     : "语音转写生成字幕"}
@@ -376,13 +387,29 @@ function NoTranscriptCard({ ep }: { ep: Episode }) {
               <div className="gen-options">
                 <label>
                   <span>识别引擎</span>
-                  <select value={asrChoice} onChange={(e) => savePrefs({ asrChoice: e.target.value })}>
-                    <option value="qwen3">本机 Qwen3-ASR 0.6B（{localReady ? "已就绪" : "需下载"}）</option>
-                    {CLOUD_ASR_PRESETS.map((p) => (
-                      <option key={p.id} value={`cloud:${p.id}`}>
-                        云端 · {p.name}
-                      </option>
-                    ))}
+                  <select
+                    value={isCloud ? asrChoice : localSelectValue}
+                    onChange={(e) => savePrefs({ asrChoice: e.target.value })}
+                  >
+                    <optgroup label="本机离线（音频不出本机）">
+                      {localModels.length > 0 ? (
+                        localModels.map((m) => (
+                          <option key={m.id} value={`local:${m.id}`}>
+                            {m.name}（{m.sizeMb >= 1024 ? `${(m.sizeMb / 1024).toFixed(2)} GB` : `${m.sizeMb} MB`}
+                            {m.recommended ? " · 推荐" : ""} · {m.installed && asrStatus?.engineReady ? "已就绪" : m.installed ? "缺引擎" : "需下载"}）
+                          </option>
+                        ))
+                      ) : (
+                        <option value="local:qwen3-0.6b">Qwen3-ASR 0.6B（需下载）</option>
+                      )}
+                    </optgroup>
+                    <optgroup label="云端语音识别">
+                      {CLOUD_ASR_PRESETS.map((p) => (
+                        <option key={p.id} value={`cloud:${p.id}`}>
+                          云端 · {p.name}
+                        </option>
+                      ))}
+                    </optgroup>
                   </select>
                 </label>
                 <label>
