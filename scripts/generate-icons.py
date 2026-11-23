@@ -1,4 +1,4 @@
-"""Generate multi-resolution BrandMark PNG and ICO icons into desktop/icons/ using pure Python stdlib."""
+"""Generate multi-resolution BrandMark PNG, ICO, and ICNS icons into desktop/icons/ using pure Python stdlib."""
 from pathlib import Path
 import struct
 import zlib
@@ -96,17 +96,38 @@ def encode_ico(entries: list[tuple[int, bytes]]) -> bytes:
     return header + bytes(dir_entries) + bytes(payload)
 
 
+def encode_icns(entries: list[tuple[bytes, bytes]]) -> bytes:
+    body = bytearray()
+    for ostype, png in entries:
+        body.extend(ostype)
+        body.extend(struct.pack(">I", 8 + len(png)))
+        body.extend(png)
+    return b"icns" + struct.pack(">I", 8 + len(body)) + bytes(body)
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     pngs: dict[int, bytes] = {}
-    for sz in (16, 32, 48, 64, 128, 256, 512):
-        pngs[sz] = encode_png(sz, render_rgba(sz, ss=4 if sz <= 128 else 2))
+    for sz in (16, 32, 48, 64, 128, 256, 512, 1024):
+        ss = 4 if sz <= 128 else (2 if sz <= 512 else 1)
+        pngs[sz] = encode_png(sz, render_rgba(sz, ss=ss))
 
     (OUT / "32x32.png").write_bytes(pngs[32])
     (OUT / "128x128.png").write_bytes(pngs[128])
     (OUT / "128x128@2x.png").write_bytes(pngs[256])
     (OUT / "icon.png").write_bytes(pngs[512])
     (OUT / "icon.ico").write_bytes(encode_ico([(s, pngs[s]) for s in (16, 32, 48, 64, 128, 256)]))
+    (OUT / "icon.icns").write_bytes(
+        encode_icns([
+            (b"icp4", pngs[16]),
+            (b"icp5", pngs[32]),
+            (b"icp6", pngs[64]),
+            (b"ic07", pngs[128]),
+            (b"ic08", pngs[256]),
+            (b"ic09", pngs[512]),
+            (b"ic10", pngs[1024]),
+        ])
+    )
     print(f"Generated icons in {OUT}")
 
 

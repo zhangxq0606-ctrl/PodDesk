@@ -10,8 +10,8 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "tauri:dev": "pwsh -NoProfile -File scripts/run-tauri.ps1 dev",
-    "tauri:build": "pwsh -NoProfile -File scripts/run-tauri.ps1 build"
+    "tauri:dev": "node scripts/run-tauri.mjs dev",
+    "tauri:build": "node scripts/run-tauri.mjs build"
   },
   "dependencies": {
     "lucide-react": "^1.77.0",

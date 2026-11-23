@@ -169,15 +169,18 @@ fn is_allowed_in_app(url: &url::Url) -> bool {
 }
 
 fn prepend_exe_dir_to_path() {
-    let Ok(exe) = std::env::current_exe() else { return };
-    let Some(dir) = exe.parent() else { return };
-    let current = std::env::var_os("PATH").unwrap_or_default();
-    let mut paths = vec![dir.to_path_buf()];
-    paths.extend(std::env::split_paths(&current));
-    if let Ok(joined) = std::env::join_paths(paths) {
-        // Safety: runs once on main thread before spawning worker threads/subprocesses.
-        unsafe {
-            std::env::set_var("PATH", joined);
+    #[cfg(target_os = "windows")]
+    {
+        let Ok(exe) = std::env::current_exe() else { return };
+        let Some(dir) = exe.parent() else { return };
+        let current = std::env::var_os("PATH").unwrap_or_default();
+        let mut paths = vec![dir.to_path_buf()];
+        paths.extend(std::env::split_paths(&current));
+        if let Ok(joined) = std::env::join_paths(paths) {
+            // Safety: runs once on main thread before spawning worker threads/subprocesses.
+            unsafe {
+                std::env::set_var("PATH", joined);
+            }
         }
     }
 }
@@ -369,8 +372,15 @@ fn main() {
         .build(tauri::generate_context!())
         .expect("failed to build PodDesk desktop app");
 
-    app.run(|app_handle, event| {
-        if let RunEvent::Exit = event {
+    app.run(|app_handle, event| match event {
+        #[cfg(target_os = "macos")]
+        RunEvent::Reopen {
+            has_visible_windows: false,
+            ..
+        } => {
+            focus_main_window(app_handle);
+        }
+        RunEvent::Exit => {
             flush_window_persist(app_handle);
             if let Some(st) = app_handle.try_state::<ServerState>() {
                 if let Some(mut srv) = st.0.lock().unwrap_or_else(|e| e.into_inner()).take() {
@@ -378,5 +388,6 @@ fn main() {
                 }
             }
         }
+        _ => {}
     });
 }
