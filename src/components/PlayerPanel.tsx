@@ -96,7 +96,10 @@ function ShowNotesModal({ ep, text, onClose }: { ep: Episode; text: string; onCl
       setZhParas(res.items);
       setShowOrig(false);
     } catch {
-      useStore.getState().notify("简介翻译失败，请检查网络或代理", false);
+      useStore.getState().notify("简介翻译失败，请检查网络或代理", false, {
+        label: "去设置网络",
+        run: () => useStore.getState().openSettings("network"),
+      });
     } finally {
       setTranslating(false);
     }
@@ -146,12 +149,11 @@ function renderRightPane(kind: RightTab, ep: Episode) {
 }
 
 export function EpisodeView({ id }: { id: string }) {
-  const { cached, load, deleteEpisode, curTime } = useStore(
+  const { cached, load, deleteEpisode } = useStore(
     useShallow((s) => ({
       cached: s.episodeCache[id],
       load: s.load,
       deleteEpisode: s.deleteEpisode,
-      curTime: s.current?.id === id ? s.time : undefined,
     })),
   );
   const { panel, audioPanel, audioTabs, videoTabs, panelOpen, splitRatio, put } = useLayout(
@@ -273,9 +275,7 @@ export function EpisodeView({ id }: { id: string }) {
     });
   };
 
-  const origHref = ep.videoId
-    ? `https://www.youtube.com/watch?v=${ep.videoId}${curTime && curTime > 5 ? `&t=${Math.floor(curTime)}s` : ""}`
-    : ep.link;
+  const origHref = ep.videoId ? `https://www.youtube.com/watch?v=${ep.videoId}` : ep.link;
 
   const toggleTab = (target: RightTab) => {
     if (showVideo) {
@@ -361,7 +361,22 @@ export function EpisodeView({ id }: { id: string }) {
                   </button>
                 )}
                 {origHref && (
-                  <a className="round-btn" href={origHref} target="_blank" rel="noreferrer" title="在原网页打开">
+                  <a
+                    className="round-btn"
+                    href={origHref}
+                    target="_blank"
+                    rel="noreferrer"
+                    title="在原网页打开"
+                    onClick={(e) => {
+                      if (!ep.videoId) return;
+                      const st = useStore.getState();
+                      const t = st.current?.id === ep.id ? st.time : ep.progress;
+                      e.currentTarget.href =
+                        t > 5
+                          ? `https://www.youtube.com/watch?v=${ep.videoId}&t=${Math.floor(t)}s`
+                          : `https://www.youtube.com/watch?v=${ep.videoId}`;
+                    }}
+                  >
                     <ExternalLink size={15} />
                   </a>
                 )}

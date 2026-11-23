@@ -11,6 +11,7 @@
 |---|---|
 | 产品定位、范围与业务规则 | `PROJECT.md` |
 | 技术架构、模块与公共契约 | `ARCHITECTURE.md` |
+| 视觉规范、主题 Token 与微动效契约 | `docs/DESIGN_SYSTEM.md` |
 | 生命周期、已验证能力与阻塞 | `PROGRESS.md` |
 | 运行与排障 | 按需建立（当前尚未创建 `docs/OPERATIONS.md`） |
 | 活跃 Goal | `PROGRESS.md` 的 `active_goal` 指针；为空时不读取 `goals/` |
@@ -26,7 +27,7 @@
 
 - 安装：`npm install`（项目根目录，当前会话经 `--registry=https://registry.npmmirror.com` 直连实测通过并生成 `package-lock.json`）；Rust 依赖由 `cargo build` / `cargo test` 在 `server/` 目录与 `desktop/` 目录自动拉取通过
 - 构建：`npm run build`（项目根目录 `tsc --noEmit && vite build`）、`cargo build`（`server/` 目录）与 `npm run tauri:build`（项目根目录，构建桌面端 `podcast-desk-desktop.exe` 及 NSIS 安装包）
-- 测试：`cargo test`（`server/` 目录）与 `npm run typecheck`（项目根目录）
+- 测试：`cargo test`（`server/` 目录）、`npm run test`（项目根目录，Vitest）与 `npm run typecheck`（项目根目录）
 - 运行：`.\desktop\target\release\podcast-desk-desktop.exe`（桌面端，数据存 `%LOCALAPPDATA%\podcast-desk`）或 `.\server\target\debug\podcast-desk.exe`（CLI 服务模式，默认绑定 `127.0.0.1:14327`，静默启动加 `--no-open`）
 
 每项验证入口只能是：真实且已验证的命令、`待建立`，或`不适用（原因）`。Foundation 退出前，所有适用命令必须实测；不适用项必须保留原因。

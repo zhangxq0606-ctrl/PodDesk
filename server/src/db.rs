@@ -11,6 +11,9 @@ pub fn open(path: &Path) -> Result<Connection> {
         -- In WAL mode NORMAL is still crash-safe, and commits stop waiting on a disk flush each time.
         PRAGMA synchronous=NORMAL;
         PRAGMA busy_timeout=5000;
+        PRAGMA temp_store=MEMORY;
+        PRAGMA cache_size=-16000;
+        PRAGMA mmap_size=67108864;
         CREATE TABLE IF NOT EXISTS shows(
             id TEXT PRIMARY KEY, kind TEXT NOT NULL, title TEXT NOT NULL, author TEXT, cover TEXT,
             feed_url TEXT NOT NULL, link TEXT, description TEXT, updated_at INTEGER NOT NULL DEFAULT 0);
@@ -21,6 +24,7 @@ pub fn open(path: &Path) -> Result<Connection> {
             completed INTEGER NOT NULL DEFAULT 0);
         CREATE INDEX IF NOT EXISTS episodes_show ON episodes(show_id, published DESC);
         CREATE INDEX IF NOT EXISTS episodes_published ON episodes(published DESC);
+        CREATE INDEX IF NOT EXISTS episodes_show_progress ON episodes(show_id, progress);
         CREATE TABLE IF NOT EXISTS transcripts(
             episode_id TEXT PRIMARY KEY, source TEXT NOT NULL, language TEXT NOT NULL, segments TEXT NOT NULL, created_at INTEGER NOT NULL);
         CREATE TABLE IF NOT EXISTS blobs(

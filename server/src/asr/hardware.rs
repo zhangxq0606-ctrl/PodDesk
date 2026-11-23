@@ -1,7 +1,6 @@
 //! Hardware detection, discrete GPU selection (`-dev`), CrispASR v0.8.55 variant management,
 //! short-audio smoke-probe, and CPU/CPU-Legacy automatic fallback.
 use super::catalog::{ModelBackend, QWEN3_06B_MODEL_ID, SENSEVOICE_MODEL_ID};
-use super::download;
 use super::media::synth_probe_wav;
 use super::ytdlp::exe;
 use anyhow::{anyhow, Context, Result};
@@ -481,16 +480,12 @@ pub async fn install_crispasr_variant(
         .asset_name()
         .ok_or_else(|| anyhow!("当前平台暂不支持离线 CrispASR（建议改用云端 ASR）"))?;
     let archive = data.join("bin").join(format!("{variant_prefix}-{asset}", variant_prefix = variant.as_str()));
-    download(
-        &format!("https://github.com/CrispStrobe/CrispASR/releases/download/{CRISPASR_VERSION}/{asset}"),
-        &archive,
-        cancel,
-        progress,
-    )
-    .await?;
+    let orig_url = format!("https://github.com/CrispStrobe/CrispASR/releases/download/{CRISPASR_VERSION}/{asset}");
+    let urls = crate::net::github_release_urls(&orig_url);
+    super::download_from_candidates(&urls, &archive, cancel, progress).await?;
     let dest = variant_dir(data, variant);
     let (a, d) = (archive.clone(), dest.clone());
-    tokio::task::spawn_blocking(move || -> Result<()> {
+    let extract_res = tokio::task::spawn_blocking(move || -> Result<()> {
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d)?;
         let file = std::fs::File::open(&a)?;
@@ -501,8 +496,9 @@ pub async fn install_crispasr_variant(
         }
         Ok(())
     })
-    .await??;
+    .await;
     let _ = std::fs::remove_file(&archive);
+    extract_res??;
     let bin = find_crispasr_variant(data, variant)
         .ok_or_else(|| anyhow!("CrispASR（{}）解压后未找到可执行文件", variant.label()))?;
     #[cfg(unix)]

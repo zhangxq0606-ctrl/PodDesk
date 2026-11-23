@@ -28,6 +28,7 @@ pub struct ServerConfig {
     pub port: u16,
     pub data_dir: PathBuf,
     pub dist_dir: Option<PathBuf>,
+    pub quit_tx: Option<tokio::sync::oneshot::Sender<()>>,
 }
 
 pub struct RunningServer {
@@ -35,12 +36,22 @@ pub struct RunningServer {
     pub url: String,
     pub data_dir: PathBuf,
     pub dist_source: String,
+    state: Arc<AppState>,
     shutdown_tx: Option<tokio::sync::oneshot::Sender<()>>,
     handle: Option<tokio::task::JoinHandle<Result<()>>>,
 }
 
 impl RunningServer {
+    pub fn active_jobs(&self) -> usize {
+        self.state.active_job_count()
+    }
+
+    pub fn cancel_all_jobs(&self) {
+        self.state.cancel_all_jobs();
+    }
+
     pub fn shutdown(&mut self) {
+        self.cancel_all_jobs();
         if let Some(tx) = self.shutdown_tx.take() {
             let _ = tx.send(());
         }
@@ -138,6 +149,11 @@ pub async fn start_server(cfg: ServerConfig) -> Result<RunningServer> {
             eprintln!("警告：恢复已保存代理失败（{err}），将使用系统代理");
         }
     }
+    if let Ok(Some(saved_mirror)) = db::get_setting(&conn, "githubMirror") {
+        if let Err(err) = net::set_github_mirror(&saved_mirror) {
+            eprintln!("警告：恢复已保存 GitHub 镜像失败（{err}），将使用直连与内置回退");
+        }
+    }
 
     let (port, listener) = bind_free_port(cfg.port).await?;
     let state = Arc::new(AppState {
@@ -145,12 +161,13 @@ pub async fn start_server(cfg: ServerConfig) -> Result<RunningServer> {
         data_dir: cfg.data_dir.clone(),
         port,
         jobs: Mutex::new(HashMap::new()),
+        quit_tx: Mutex::new(cfg.quit_tx),
     });
     let dist_source = match &cfg.dist_dir {
         Some(d) if d.join("index.html").is_file() => d.display().to_string(),
         _ => "embedded".to_string(),
     };
-    let app = routes::router(state, cfg.dist_dir);
+    let app = routes::router(state.clone(), cfg.dist_dir);
     let url = format!("http://127.0.0.1:{port}");
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
 
@@ -168,6 +185,7 @@ pub async fn start_server(cfg: ServerConfig) -> Result<RunningServer> {
         url,
         data_dir: cfg.data_dir,
         dist_source,
+        state,
         shutdown_tx: Some(shutdown_tx),
         handle: Some(handle),
     })

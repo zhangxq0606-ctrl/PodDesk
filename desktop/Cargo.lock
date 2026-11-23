@@ -3134,6 +3134,8 @@ name = "podcast-desk-desktop"
 version = "0.1.0"
 dependencies = [
  "podcast-desk",
+ "serde",
+ "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-single-instance",

@@ -7,6 +7,8 @@ export interface HealthInfo {
   shows: number;
   configuredProxy: string;
   effectiveProxy: string;
+  githubMirror?: string;
+  activeJobs?: number;
 }
 
 export interface Show {
@@ -249,7 +251,7 @@ export const api = {
   health: () => requestJson<HealthInfo>("/api/health"),
   getSettings: () => requestJson<Record<string, string>>("/api/settings"),
   saveSettings: (patch: Record<string, string>) =>
-    requestJson<{ ok: boolean; configuredProxy: string; effectiveProxy: string }>("/api/settings", {
+    requestJson<{ ok: boolean; configuredProxy: string; effectiveProxy: string; githubMirror?: string }>("/api/settings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(patch),
@@ -451,6 +453,8 @@ export const api = {
       body: JSON.stringify({ text }),
     }),
 
+  quitApp: () => requestJson<{ ok: boolean }>("/api/app/quit", { method: "POST" }),
+
   async streamChat(opts: {
     requestId: string;
     provider: Pick<ProviderConfig, "id" | "protocol" | "baseUrl" | "model">;
@@ -458,6 +462,7 @@ export const api = {
     messages: { role: "user" | "assistant"; content: string }[];
     maxTokens?: number;
     jsonMode?: boolean;
+    quick?: boolean;
     signal?: AbortSignal;
     onDelta?: (text: string) => void;
   }): Promise<string> {
@@ -474,6 +479,7 @@ export const api = {
         messages: opts.messages,
         maxTokens: opts.maxTokens ?? 8000,
         jsonMode: opts.jsonMode ?? false,
+        quick: opts.quick ?? false,
       },
       onEvent: (ev) => {
         if (ev.type === "delta" && ev.text) {

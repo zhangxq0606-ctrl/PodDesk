@@ -66,7 +66,7 @@
 
 - 上游参考仓库位于 `D:\project\subcast`（本地 `v0.2.8` / `ca578c5`，远端已只读抓取至 `v0.3.2+` / `4cdbfa6`），协议为 `AGPL-3.0-only`；本项目复用其代码与模块，继续遵守 `AGPL-3.0-only` 开源边界。
 - 船长本机为 Windows 环境，已安装 Git / Node / Rust / VS BuildTools，未安装 `CMake` 与 `LLVM`（暂不安装）；名下有一台国内 2核2G 云服务器（首版不使用，留作未来共享飞轮候选）。
-- 原研究草稿 `C:\Users\qqmin06\Downloads\subcast-study.md` 与 `subcast-study.html` 已完成历史使命，后续所有产品与架构事实均以本目录文档为准。
+- 早期调研草稿已完成历史使命，后续所有产品与架构事实均以本目录文档为准。
 
 ## 成功标准
 

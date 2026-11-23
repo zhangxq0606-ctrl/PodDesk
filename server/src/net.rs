@@ -8,6 +8,7 @@ use std::time::Duration;
 pub const UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) PodcastDesk/0.1";
 
 static CLIENT: Lazy<RwLock<(String, reqwest::Client)>> = Lazy::new(|| RwLock::new((String::new(), build("").unwrap())));
+static GITHUB_MIRROR: Lazy<RwLock<String>> = Lazy::new(|| RwLock::new(String::new()));
 /// Ignores every proxy: the fallback when the system proxy (Clash and the like, on 127.0.0.1) isn't running.
 static DIRECT: Lazy<reqwest::Client> = Lazy::new(|| base().no_proxy().build().unwrap());
 
@@ -38,12 +39,53 @@ fn build(proxy: &str) -> Result<reqwest::Client> {
 pub fn set_proxy(proxy: &str) -> Result<()> {
     let trimmed = proxy.trim().to_string();
     let client = build(&trimmed)?;
-    *CLIENT.write().unwrap() = (trimmed, client);
+    *CLIENT.write().unwrap_or_else(|e| e.into_inner()) = (trimmed, client);
     Ok(())
 }
 
 pub fn proxy() -> String {
-    CLIENT.read().unwrap().0.clone()
+    CLIENT.read().unwrap_or_else(|e| e.into_inner()).0.clone()
+}
+
+pub fn set_github_mirror(raw: &str) -> Result<()> {
+    let trimmed = raw.trim().trim_end_matches('/').to_string();
+    if !trimmed.is_empty() {
+        let lower = trimmed.to_ascii_lowercase();
+        if !(lower.starts_with("http://") || lower.starts_with("https://")) {
+            return Err(anyhow!("GitHub 镜像地址需以 http:// 或 https:// 开头"));
+        }
+        reqwest::Url::parse(&trimmed).map_err(|e| anyhow!("GitHub 镜像地址无效：{e}"))?;
+    }
+    *GITHUB_MIRROR.write().unwrap_or_else(|e| e.into_inner()) = trimmed;
+    Ok(())
+}
+
+pub fn github_mirror() -> String {
+    GITHUB_MIRROR.read().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
+pub fn github_release_urls(original_url: &str) -> Vec<String> {
+    if !original_url.starts_with("https://github.com/") {
+        return vec![original_url.to_string()];
+    }
+    const PUBLIC_MIRRORS: &[&str] = &["https://ghfast.top", "https://gh-proxy.com"];
+    let custom = github_mirror();
+    let mut urls = Vec::new();
+    let mut push_unique = |u: String| {
+        if !urls.contains(&u) {
+            urls.push(u);
+        }
+    };
+    if !custom.is_empty() {
+        push_unique(format!("{custom}/{original_url}"));
+        push_unique(original_url.to_string());
+    } else {
+        push_unique(original_url.to_string());
+        for m in PUBLIC_MIRRORS {
+            push_unique(format!("{m}/{original_url}"));
+        }
+    }
+    urls
 }
 
 /// The proxy for child tools (yt-dlp, local AI agents): the one set manually, else the system's.
@@ -53,13 +95,13 @@ pub fn effective_proxy() -> String {
         return own;
     }
     static CACHE: Lazy<RwLock<(Option<std::time::Instant>, String)>> = Lazy::new(|| RwLock::new((None, String::new())));
-    if let Some(at) = CACHE.read().unwrap().0 {
+    if let Some(at) = CACHE.read().unwrap_or_else(|e| e.into_inner()).0 {
         if at.elapsed().as_secs() < 30 {
-            return CACHE.read().unwrap().1.clone();
+            return CACHE.read().unwrap_or_else(|e| e.into_inner()).1.clone();
         }
     }
     let found = system_proxy().unwrap_or_default();
-    *CACHE.write().unwrap() = (Some(std::time::Instant::now()), found.clone());
+    *CACHE.write().unwrap_or_else(|e| e.into_inner()) = (Some(std::time::Instant::now()), found.clone());
     found
 }
 
@@ -123,7 +165,7 @@ fn system_proxy() -> Option<String> {
 }
 
 pub fn client() -> reqwest::Client {
-    CLIENT.read().unwrap().1.clone()
+    CLIENT.read().unwrap_or_else(|e| e.into_inner()).1.clone()
 }
 
 /// A GET with up to two retries on connection-level failures, timeouts, 429 and 5xx.
@@ -202,6 +244,33 @@ mod tests {
 
         assert!(refused("tcp connect error: Connection refused (os error 10061)"));
         assert!(!refused("timed out"));
+    }
+
+    #[test]
+    fn github_mirror_normalization_and_candidate_order() {
+        let orig = "https://github.com/yt-dlp/yt-dlp/releases/latest/download";
+        set_github_mirror("").unwrap();
+        assert_eq!(github_mirror(), "");
+        let defaults = github_release_urls(orig);
+        assert_eq!(defaults[0], orig);
+        assert!(defaults.iter().any(|u| u.starts_with("https://ghfast.top/https://github.com/")));
+        assert!(defaults.iter().any(|u| u.starts_with("https://gh-proxy.com/https://github.com/")));
+
+        assert!(set_github_mirror("ftp://bad").is_err());
+        assert!(set_github_mirror("not-a-url").is_err());
+
+        set_github_mirror("  https://mirror.example.com/// ").unwrap();
+        assert_eq!(github_mirror(), "https://mirror.example.com");
+        let custom = github_release_urls(orig);
+        assert_eq!(
+            custom,
+            vec![
+                format!("https://mirror.example.com/{orig}"),
+                orig.to_string()
+            ]
+        );
+        assert_eq!(github_release_urls("https://hf-mirror.com/foo"), vec!["https://hf-mirror.com/foo"]);
+        set_github_mirror("").unwrap();
     }
 
     #[test]

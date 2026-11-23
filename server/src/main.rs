@@ -49,6 +49,7 @@ async fn main() -> Result<()> {
         port: cli.port,
         data_dir,
         dist_dir: Some(dist_dir),
+        quit_tx: None,
     })
     .await?;
 

@@ -74,6 +74,44 @@ pub async fn download(
     url: &str,
     dest: &Path,
     cancel: &AtomicBool,
+    progress: impl FnMut(u64, Option<u64>),
+) -> Result<()> {
+    download_attempts(url, dest, cancel, 4, progress).await
+}
+
+/// Tries candidate URLs in order (2 attempts each when multiple, 4 when single),
+/// stopping immediately on cancellation and returning an actionable hint if all fail.
+pub async fn download_from_candidates(
+    urls: &[String],
+    dest: &Path,
+    cancel: &AtomicBool,
+    mut progress: impl FnMut(u64, Option<u64>),
+) -> Result<()> {
+    if urls.is_empty() {
+        return Err(anyhow!("未提供有效的下载地址"));
+    }
+    let attempts = if urls.len() > 1 { 2 } else { 4 };
+    let mut last_err = anyhow!("下载失败");
+    for url in urls {
+        if cancel.load(Ordering::Relaxed) {
+            return Err(anyhow!("已取消"));
+        }
+        match download_attempts(url, dest, cancel, attempts, &mut progress).await {
+            Ok(()) => return Ok(()),
+            Err(e) if cancel.load(Ordering::Relaxed) => return Err(e),
+            Err(e) => last_err = e,
+        }
+    }
+    Err(anyhow!(
+        "所有下载源均失败（{last_err}）。如国内无代理访问 GitHub 受限，请在「设置 › 网络」配置代理或自定义 GitHub 镜像后重试"
+    ))
+}
+
+async fn download_attempts(
+    url: &str,
+    dest: &Path,
+    cancel: &AtomicBool,
+    max_attempts: u32,
     mut progress: impl FnMut(u64, Option<u64>),
 ) -> Result<()> {
     let part = dest.with_extension("part");
@@ -86,7 +124,7 @@ pub async fn download(
     let mut total: Option<u64> = None;
     let mut last_err = anyhow!("下载失败");
 
-    for attempt in 0..4u32 {
+    for attempt in 0..max_attempts {
         if cancel.load(Ordering::Relaxed) {
             let _ = tokio::fs::remove_file(&part).await;
             return Err(anyhow!("已取消"));

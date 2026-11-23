@@ -66,13 +66,28 @@ fn ytdlp_asset() -> &'static str {
 pub async fn install_ytdlp(data: &Path, cancel: &AtomicBool, mut progress: impl FnMut(u64, Option<u64>)) -> Result<PathBuf> {
     let name = ytdlp_asset();
     let dest = data.join("bin").join(exe("yt-dlp"));
-    fetch_checked(YTDLP_GITHUB, name, &dest, cancel, &mut progress).await?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o755))?;
+    let bases = net::github_release_urls(YTDLP_GITHUB);
+    let mut last_err = anyhow!("下载 yt-dlp 失败");
+    for base in &bases {
+        if cancel.load(Ordering::Relaxed) {
+            return Err(anyhow!("已取消"));
+        }
+        match fetch_checked(base, name, &dest, cancel, &mut progress).await {
+            Ok(()) => {
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o755))?;
+                }
+                return Ok(dest);
+            }
+            Err(e) if cancel.load(Ordering::Relaxed) => return Err(e),
+            Err(e) => last_err = e,
+        }
     }
-    Ok(dest)
+    Err(anyhow!(
+        "无法下载 yt-dlp（{last_err}）。如国内无代理访问 GitHub 受限，请在「设置 › 网络」配置代理或自定义 GitHub 镜像后重试"
+    ))
 }
 
 async fn fetch_checked(
@@ -93,7 +108,10 @@ async fn fetch_checked(
         })
         .ok_or_else(|| anyhow!("校验清单里没有 {name}"))?;
     let tmp = dest.with_extension("download");
-    download(&format!("{base}/{name}"), &tmp, cancel, |a, b| progress(a, b)).await?;
+    if let Err(e) = download(&format!("{base}/{name}"), &tmp, cancel, |a, b| progress(a, b)).await {
+        let _ = tokio::fs::remove_file(&tmp).await;
+        return Err(e);
+    }
     let got = hex::encode(Sha256::digest(tokio::fs::read(&tmp).await?));
     if got != want {
         let _ = tokio::fs::remove_file(&tmp).await;
@@ -149,12 +167,16 @@ pub async fn update_ytdlp(data: &Path, force: bool) -> Result<bool> {
         std::fs::create_dir_all(dir)?;
     }
     std::fs::write(&stamp, b"")?;
-    let res = net::client()
-        .get("https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest")
-        .header("User-Agent", "podcast-desk")
-        .header("Accept", "application/vnd.github+json")
-        .send()
-        .await?;
+    let res = tokio::time::timeout(
+        std::time::Duration::from_secs(8),
+        net::client()
+            .get("https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest")
+            .header("User-Agent", "podcast-desk")
+            .header("Accept", "application/vnd.github+json")
+            .send(),
+    )
+    .await
+    .map_err(|_| anyhow!("GitHub 版本检查超时"))??;
     if !res.status().is_success() {
         return Err(anyhow!("GitHub HTTP {}", res.status().as_u16()));
     }
@@ -341,10 +363,10 @@ async fn youtube_audio_with(
 
 pub async fn youtube_stream_url(data: &Path, ytdlp: &Path, video_id: &str, fresh: bool) -> Result<String> {
     let key = format!("{video_id}|mp4");
-    if !fresh {
-        if let Some(url) = streams::get(&key) {
-            return Ok(url);
-        }
+    if fresh {
+        streams::forget(&key);
+    } else if let Some(url) = streams::get(&key) {
+        return Ok(url);
     }
     let url = with_bot_fallback(data, |extra| async move { stream_once(ytdlp, video_id, &extra).await }).await?;
     streams::put(&key, &url);
@@ -384,14 +406,23 @@ pub mod streams {
     }
 
     pub fn get(key: &str) -> Option<String> {
-        let map = MAP.lock().unwrap();
+        let map = MAP.lock().unwrap_or_else(|e| e.into_inner());
         map.get(key).filter(|(_, until)| *until > now()).map(|(u, _)| u.clone())
+    }
+
+    pub fn forget(key: &str) {
+        let mut map = MAP.lock().unwrap_or_else(|e| e.into_inner());
+        if map.remove(key).is_some() {
+            if let (Some(f), Ok(b)) = (FILE.get(), serde_json::to_vec(&*map)) {
+                let _ = std::fs::write(f, b);
+            }
+        }
     }
 
     pub fn put(key: &str, url: &str) {
         let t = now();
         let until = expiry(url).map(|e| e.saturating_sub(MARGIN)).unwrap_or(t + DEFAULT_LIFE);
-        let mut map = MAP.lock().unwrap();
+        let mut map = MAP.lock().unwrap_or_else(|e| e.into_inner());
         map.retain(|_, (_, u)| *u > t);
         if until > t {
             map.insert(key.to_string(), (url.to_string(), until));
@@ -403,7 +434,7 @@ pub mod streams {
 
     #[cfg(test)]
     mod tests {
-        use super::expiry;
+        use super::*;
 
         #[test]
         fn reads_expiry() {
@@ -413,6 +444,15 @@ pub mod streams {
                 Some(1700001234)
             );
             assert_eq!(expiry("https://example.com/a.mp4"), None);
+        }
+
+        #[test]
+        fn forgets_cached_stream_url() {
+            let k = format!("forget-test-{}", uuid::Uuid::new_v4());
+            put(&k, "https://example.com/video.mp4");
+            assert_eq!(get(&k).as_deref(), Some("https://example.com/video.mp4"));
+            forget(&k);
+            assert!(get(&k).is_none());
         }
     }
 }

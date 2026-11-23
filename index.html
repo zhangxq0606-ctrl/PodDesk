@@ -13,16 +13,28 @@
           var raw = JSON.parse(localStorage.getItem("podcast-desk-prefs") || "{}");
           var t = raw && (raw.theme === "dark" || raw.theme === "light" || raw.theme === "system") ? raw.theme : "light";
           var mode = t === "system" ? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light") : t;
-          var lightIds = ["warm-paper", "pure-morning", "bamboo-mist", "apricot-study"];
-          var darkIds = ["warm-charcoal", "deep-slate", "obsidian-cinema", "pine-ink"];
+          var lightIds = ["stone-proof", "linen-folio", "silver-console", "warm-paper"];
+          var darkIds = ["graphite-desk", "darkroom-carbon", "studio-slate", "warm-charcoal"];
+          var lightLegacy = {
+            "pure-morning": "silver-console",
+            "bamboo-mist": "linen-folio",
+            "apricot-study": "warm-paper",
+          };
+          var darkLegacy = {
+            "deep-slate": "studio-slate",
+            "obsidian-cinema": "graphite-desk",
+            "pine-ink": "darkroom-carbon",
+          };
+          var rawLight = raw && raw.lightTheme;
+          var rawDark = raw && raw.darkTheme;
           var pal =
             mode === "dark"
-              ? darkIds.indexOf(raw && raw.darkTheme) >= 0
-                ? raw.darkTheme
-                : "warm-charcoal"
-              : lightIds.indexOf(raw && raw.lightTheme) >= 0
-                ? raw.lightTheme
-                : "warm-paper";
+              ? darkIds.indexOf(rawDark) >= 0
+                ? rawDark
+                : darkLegacy[rawDark] || "graphite-desk"
+              : lightIds.indexOf(rawLight) >= 0
+                ? rawLight
+                : lightLegacy[rawLight] || "stone-proof";
           var el = document.documentElement;
           el.setAttribute("data-theme", mode);
           el.setAttribute("data-palette", pal);

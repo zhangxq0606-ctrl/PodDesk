@@ -264,7 +264,12 @@ export async function fetchOfficialSub(ep: Episode, silent = false): Promise<voi
       officialStatus: { ...s.officialStatus, [ep.id]: noSub ? "none" : "error" },
       officialError: { ...s.officialError, [ep.id]: noSub ? null : msg },
     }));
-    if (!silent) useStore.getState().notify(msg, false);
+    if (!silent) {
+      const netLike = !noSub && /网络|超时|代理|连接|proxy|timeout|yt-dlp|cookie|403|429/i.test(msg);
+      useStore
+        .getState()
+        .notify(msg, false, netLike ? { label: "检查网络", run: () => useStore.getState().openSettings("network") } : undefined);
+    }
   }
 }
 

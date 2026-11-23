@@ -1,0 +1,248 @@
+/* ---- mini player, modals, confirm, toast ---- */
+.mini {
+  position: fixed;
+  bottom: 16px;
+  left: calc(var(--mini-offset, 0px) + (100vw - var(--mini-offset, 0px)) / 2);
+  transform: translateX(-50%);
+  width: min(560px, calc(100vw - var(--mini-offset, 0px) - 40px));
+  max-width: 560px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 10px 9px 10px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--overlay) 90%, transparent);
+  backdrop-filter: blur(18px);
+  border: 1px solid var(--line-strong);
+  box-shadow: var(--rim-top), var(--shadow-lg);
+  z-index: 22;
+  overflow: hidden;
+  transform-origin: bottom center;
+  animation: toast-in 0.2s var(--ease-drawer) both;
+}
+
+.mini-progress {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--track);
+  pointer-events: none;
+}
+
+.mini-progress > div {
+  height: 100%;
+  background: var(--accent);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 55%, transparent);
+  transition: width 0.25s var(--ease);
+}
+
+.mini-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  border-radius: 8px;
+}
+
+.mini-cover-wrap {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  overflow: hidden;
+  flex: none;
+}
+
+.mini-cover-wrap::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+  pointer-events: none;
+}
+
+.mini-cover {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  object-fit: cover;
+  font-size: 14px;
+}
+
+.mini-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.mini-text .ep-name {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.mini-text .meta-line {
+  font-size: 11.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.3;
+}
+
+.mini-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+
+.mini-close {
+  color: var(--muted);
+  margin-left: 2px;
+}
+
+.mini-close:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.modal-back {
+  position: fixed;
+  inset: 0;
+  background: var(--backdrop);
+  backdrop-filter: blur(5px);
+  display: grid;
+  place-items: center;
+  z-index: 50;
+  padding: 16px;
+  animation: fade-in 0.14s var(--ease-out) both;
+}
+
+.modal {
+  width: min(540px, 100%);
+  max-height: calc(100vh - 48px);
+  display: flex;
+  flex-direction: column;
+  background: var(--overlay);
+  backdrop-filter: blur(16px);
+  border-radius: 16px;
+  border: 1px solid var(--line-strong);
+  box-shadow: var(--rim-top), var(--shadow-lg);
+  transform-origin: center 46%;
+  animation: modal-in 0.18s var(--ease-drawer) both;
+}
+
+.modal.wide {
+  width: min(1060px, 92vw);
+  height: min(780px, 88vh);
+}
+
+.modal.confirm {
+  width: min(400px, 100%);
+  padding: 20px;
+  gap: 10px;
+}
+
+.confirm-title {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.confirm-msg {
+  font-size: 13px;
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px 10px 22px;
+  border-bottom: 1px solid var(--line);
+}
+
+.modal-head h3 {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.modal-body {
+  padding: 16px 22px 20px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.modal-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.menu {
+  position: absolute;
+  min-width: 160px;
+  padding: 5px;
+  border-radius: 10px;
+  background: var(--overlay);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--line-strong);
+  box-shadow: var(--rim-top), var(--shadow);
+  z-index: 30;
+  transform-origin: top left;
+  animation: pop-down 0.15s var(--ease-out) both;
+}
+
+.menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.menu button:hover {
+  background: var(--hover-fill);
+}
+
+.import-textarea {
+  width: 100%;
+  height: auto;
+  padding: 10px 12px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  resize: vertical;
+}
+
+.file-drop {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  border-radius: 10px;
+  border: 1.5px dashed var(--line-strong);
+  background: var(--bg);
+  color: var(--text-2);
+  font-size: 13px;
+  cursor: pointer;
+  text-align: center;
+}
+
+.file-drop:hover {
+  border-color: var(--ink);
+}
+

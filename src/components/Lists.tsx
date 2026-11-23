@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   CheckCheck,
   CheckCircle2,
@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import type { Episode, Show } from "../lib/api";
+import { readScroll, saveScroll } from "../lib/cache";
 import { ask } from "../lib/confirm";
 import { clock, formatDate, formatDuration, groupLabel, notesText } from "../lib/format";
 import { clearEpisodeJobs } from "../lib/jobs";
@@ -349,6 +350,14 @@ export function HomeView() {
   const [homeTab, setHomeTab] = useState<"recent" | "updates">(readHomeTab);
   const [updateDays, setUpdateDays] = useState<7 | 30>(30);
   const [onlyUnwatched, setOnlyUnwatched] = useState(false);
+  const pageRef = useRef<HTMLDivElement>(null);
+  const hasContent = shows.length > 0 || recentEpisodes.length > 0;
+
+  useLayoutEffect(() => {
+    if (!hasContent || !pageRef.current) return;
+    const y = readScroll("home");
+    if (y > 0) pageRef.current.scrollTop = y;
+  }, [hasContent]);
 
   const switchTab = (next: "recent" | "updates") => {
     setHomeTab(next);
@@ -415,7 +424,7 @@ export function HomeView() {
   const effectiveTab = shows.length > 0 ? homeTab : "recent";
 
   return (
-    <div className="page">
+    <div className="page" ref={pageRef} onScroll={(e) => saveScroll("home", e.currentTarget.scrollTop)}>
       <div className="page-inner">
         {hero && (
           <section>
@@ -571,6 +580,17 @@ export function ShowView({ id }: { id: string }) {
   const [descExpanded, setDescExpanded] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const pageRef = useRef<HTMLDivElement>(null);
+  const restoredKeyRef = useRef<string | null>(null);
+  const scrollKey = `show:${id}`;
+
+  useLayoutEffect(() => {
+    if (!show || !episodes || restoredKeyRef.current === scrollKey) return;
+    const el = pageRef.current;
+    if (!el) return;
+    restoredKeyRef.current = scrollKey;
+    el.scrollTop = readScroll(scrollKey);
+  }, [show, episodes, scrollKey]);
 
   useEffect(() => {
     void loadShowEpisodes(id);
@@ -677,7 +697,7 @@ export function ShowView({ id }: { id: string }) {
   const hasMoreYt = isYt && showHasMore[id] !== false;
 
   return (
-    <div className="page">
+    <div className="page" ref={pageRef} onScroll={(e) => saveScroll(scrollKey, e.currentTarget.scrollTop)}>
       <div className="page-inner">
         <div className="show-head">
           {show.cover ? (

@@ -290,7 +290,9 @@ export function TopBar({ rightExtra }: { rightExtra?: ReactNode }) {
       setOpen(false);
       setResults(null);
     } catch (err) {
-      notify(err instanceof Error ? err.message : "订阅或打开失败", false);
+      const msg = err instanceof Error ? err.message : "订阅或打开失败";
+      const netLike = /网络|超时|代理|连接|proxy|timeout|failed|fetch|yt-dlp|cookie|403|429/i.test(msg);
+      notify(msg, false, netLike ? { label: "检查网络", run: () => useStore.getState().openSettings("network") } : undefined);
     } finally {
       setAdding(null);
     }
@@ -515,6 +517,8 @@ export function MiniPlayer() {
     })),
   );
   const { sideOpen, sidebar } = useLayout(useShallow((l) => ({ sideOpen: l.sideOpen, sidebar: l.sidebar })));
+  const [backTick, setBackTick] = useState(0);
+  const [fwdTick, setFwdTick] = useState(0);
 
   if (!current || current.videoId || isVideoMediaUrl(current.audioUrl) || (view.kind === "episode" && view.id === current.id)) {
     return null;
@@ -561,8 +565,11 @@ export function MiniPlayer() {
       <div className="mini-controls">
         <button
           type="button"
-          className="icon-btn sm"
-          onClick={() => player?.seek(Math.max(0, time - 15))}
+          className={`icon-btn sm${backTick ? (backTick % 2 === 1 ? " nudge-ccw-a" : " nudge-ccw-b") : ""}`}
+          onClick={() => {
+            setBackTick((n) => n + 1);
+            player?.seek(Math.max(0, time - 15));
+          }}
           disabled={!player}
           title="后退 15 秒"
           aria-label="后退 15 秒"
@@ -586,8 +593,11 @@ export function MiniPlayer() {
         </button>
         <button
           type="button"
-          className="icon-btn sm"
-          onClick={() => player?.seek(length > 0 ? Math.min(length, time + 15) : time + 15)}
+          className={`icon-btn sm${fwdTick ? (fwdTick % 2 === 1 ? " nudge-cw-a" : " nudge-cw-b") : ""}`}
+          onClick={() => {
+            setFwdTick((n) => n + 1);
+            player?.seek(length > 0 ? Math.min(length, time + 15) : time + 15);
+          }}
           disabled={!player}
           title="前进 15 秒"
           aria-label="前进 15 秒"
@@ -820,6 +830,24 @@ export function ImportModal() {
 
 export function Toast() {
   const notice = useStore((s) => s.notice);
+  const setNotice = useStore((s) => s.setNotice);
   if (!notice) return null;
-  return <div className={`toast ${notice.ok ? "" : "bad"}`}>{notice.text}</div>;
+  return (
+    <div className={`toast ${notice.ok ? "" : "bad"}`} role="status" aria-live="polite">
+      <span>{notice.text}</span>
+      {notice.action && (
+        <button
+          type="button"
+          className="toast-act"
+          onClick={() => {
+            const act = notice.action;
+            setNotice(null);
+            act?.run();
+          }}
+        >
+          {notice.action.label}
+        </button>
+      )}
+    </div>
+  );
 }

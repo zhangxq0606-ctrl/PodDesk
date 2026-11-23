@@ -1,4 +1,4 @@
-import { Component, memo, useEffect, useState, type ErrorInfo, type ReactNode } from "react";
+import { Component, lazy, memo, Suspense, useEffect, useState, type ErrorInfo, type ReactNode } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { ConfirmHost } from "./components/ConfirmHost";
 import { HomeView, ShowView } from "./components/Lists";
@@ -8,9 +8,21 @@ import { SelectionTools } from "./components/SelectionTools";
 import { SettingsModal } from "./components/SettingsModal";
 import { ImportModal, MiniPlayer, Sidebar, Toast, TopBar } from "./components/Sidebar";
 import { Splitter } from "./components/Splitter";
+import { api } from "./lib/api";
+import { ask } from "./lib/confirm";
 import { SIDEBAR, triggerSidebarAnim, useLayout } from "./lib/layout";
+
+declare global {
+  interface Window {
+    __poddeskRequestQuit?: () => void;
+  }
+}
 import { resolveEffectiveMode } from "./lib/themes";
 import { useStore, type View } from "./store";
+
+const DevThemeLab = import.meta.env.DEV
+  ? lazy(() => import("./dev/ThemeLabBar").then((m) => ({ default: m.ThemeLabBar })))
+  : null;
 
 const MainContent = memo(function MainContent({ view }: { view: View }) {
   return (
@@ -104,9 +116,31 @@ function AppShell() {
 
   useEffect(() => {
     if (!notice) return;
-    const t = window.setTimeout(() => setNotice(null), 3500);
+    const t = window.setTimeout(() => setNotice(null), notice.action ? 6500 : 3500);
     return () => window.clearTimeout(t);
   }, [notice, setNotice]);
+
+  useEffect(() => {
+    let prompting = false;
+    window.__poddeskRequestQuit = () => {
+      if (prompting) return;
+      prompting = true;
+      void ask({
+        title: "后台任务正在进行",
+        message: "当前仍有转写、下载或 AI 任务在运行，确定立即退出 PodDesk？",
+        ok: "停止并退出",
+        danger: true,
+      }).then((yes) => {
+        prompting = false;
+        if (yes) {
+          void api.quitApp().catch(() => {});
+        }
+      });
+    };
+    return () => {
+      delete window.__poddeskRequestQuit;
+    };
+  }, []);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -236,6 +270,10 @@ function AppShell() {
 
   const isEpisode = view.kind === "episode";
   const dockedOpen = !isEpisode && sideOpen;
+  const showThemeLab =
+    import.meta.env.DEV &&
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("lab") === "1";
 
   return (
     <div
@@ -276,6 +314,11 @@ function AppShell() {
       <ImportModal />
       <ConfirmHost />
       <Toast />
+      {showThemeLab && DevThemeLab && (
+        <Suspense fallback={null}>
+          <DevThemeLab />
+        </Suspense>
+      )}
     </div>
   );
 }

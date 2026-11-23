@@ -1,316 +1,383 @@
 /* ==========================================================================
-   PodDesk Multi-Theme Token System (4 Light + 4 Dark)
-   Three-axis design:
+   PodDesk 26-Semantic-Token Multi-Theme System (4 Light + 4 Dark)
+   Three-axis decoupled:
      data-theme   = "light" | "dark"        (resolved brightness mode)
      data-palette = LightThemeId | DarkThemeId
    Elevation ladder:
-     Light: --sidebar < --bg < --panel = --elevated  (--track recessed)
-     Dark:  --sidebar < --bg < --panel < --track < --elevated (+ specular hi)
+     Light: --sidebar < --bg < --panel (matte) < --surface-card < --elevated = --overlay (#fff)
+     Dark:  --sidebar < --bg < --panel < --surface-card < --elevated < --overlay (glass)
+   Contrast floors:
+     Light --muted >= 4.65:1 on --bg / --panel / --surface-card
+     Dark  --muted >= 5.15:1 on --panel / --surface-card (anti-halation)
    ========================================================================== */
 
-/* ---------- 1. Light Default: Warm Paper (暖宣纸) ---------- */
+/* ---------- 1. Light Default: Stone Proof (素石校对) ---------- */
 :root,
 :root[data-theme="light"],
-:root[data-theme="light"][data-palette="warm-paper"] {
-  --bg: #f7f5f0;
-  --panel: #ffffff;
+:root[data-theme="light"][data-palette="stone-proof"] {
+  --sidebar: #e7eaef;
+  --bg: #eef0f4;
+  --panel: #f5f6f8;
+  --surface-card: #fafbfd;
   --elevated: #ffffff;
-  --sidebar: #efece5;
-  --soft: #eae5dc;
-  --soft-hover: #dfd8cc;
-  --track: #e9e4db;
-  --line: rgba(28, 26, 23, 0.08);
-  --line-strong: rgba(28, 26, 23, 0.16);
-  --inset-hi: inset 0 1px 0 rgba(255, 255, 255, 0.85);
-  --text: #1c1a17;
-  --text-2: #555049;
-  --muted: #868077;
-  --ink: #1c1a17;
-  --on-ink: #fbfaf7;
-  --accent: #d95b26;
-  --accent-soft: #fdefe8;
-  --accent-text: #b84414;
-  --active-line: #fbf1e8;
-  --mark: #fde0c2;
-  --ok: #1f7a5a;
-  --ok-soft: #e6f4ee;
-  --danger: #c0392b;
+  --overlay: #ffffff;
+  --surface-bubble: #e4e7ed;
+  --track: #e3e6ec;
+  --hover-fill: rgba(23, 26, 32, 0.045);
+  --active-fill: rgba(23, 26, 32, 0.085);
+  --soft: #e6e9ef;
+  --soft-hover: #dadfe8;
+  --line: rgba(23, 26, 32, 0.08);
+  --line-strong: rgba(23, 26, 32, 0.155);
+  --rim-top: inset 0 1px 0 rgba(255, 255, 255, 0.88);
+  --inset-hi: var(--rim-top);
+  --contact-shadow: 0 1px 2px rgba(18, 22, 30, 0.055), 0 0 0 1px rgba(18, 22, 30, 0.03);
+  --text: #171a20;
+  --text-2: #464c58;
+  --muted: #626874;
+  --icon-muted: #666c78;
+  --ink: #1a1e26;
+  --on-ink: #fafbfd;
+  --accent: #0f6270;
+  --accent-soft: #e3f0f2;
+  --accent-text: #0b5561;
+  --active-line: #e8f3f5;
+  --mark: #cce7eb;
+  --ok: #1b7656;
+  --ok-soft: #e3f3ec;
+  --danger: #be382b;
   --danger-soft: #fdeceb;
-  --float-bg: #1f1d1a;
-  --float-fg: #fbfaf7;
-  --float-hover: rgba(255, 255, 255, 0.14);
-  --float-border: rgba(255, 255, 255, 0.1);
-  --backdrop: rgba(20, 18, 15, 0.34);
-  --thumb-ring: rgba(28, 26, 23, 0.09);
-  --shadow-sm: 0 1px 2px rgba(28, 26, 23, 0.05), 0 0 0 1px rgba(28, 26, 23, 0.025);
-  --shadow: 0 2px 8px rgba(28, 26, 23, 0.06), 0 12px 30px rgba(28, 26, 23, 0.09);
-  --shadow-lg: 0 12px 28px rgba(28, 26, 23, 0.12), 0 28px 64px rgba(28, 26, 23, 0.18);
-  color-scheme: light;
-}
-
-/* ---------- 2. Light: Pure Morning (晨光极简) ---------- */
-:root[data-theme="light"][data-palette="pure-morning"] {
-  --bg: #f7f8fa;
-  --panel: #ffffff;
-  --elevated: #ffffff;
-  --sidebar: #eff1f5;
-  --soft: #e7eaf0;
-  --soft-hover: #dbe0e9;
-  --track: #e6e9ef;
-  --line: rgba(17, 24, 39, 0.08);
-  --line-strong: rgba(17, 24, 39, 0.15);
-  --inset-hi: inset 0 1px 0 rgba(255, 255, 255, 0.92);
-  --text: #141821;
-  --text-2: #4b5565;
-  --muted: #7c8698;
-  --ink: #161b26;
-  --on-ink: #ffffff;
-  --accent: #3b6cf5;
-  --accent-soft: #ebf0ff;
-  --accent-text: #2952c8;
-  --active-line: #eef3ff;
-  --mark: #d6e4ff;
-  --ok: #167c5c;
-  --ok-soft: #e6f6f0;
-  --danger: #c83737;
-  --danger-soft: #fdecec;
-  --float-bg: #161b26;
+  --float-bg: #1c2028;
   --float-fg: #f8fafc;
   --float-hover: rgba(255, 255, 255, 0.14);
-  --float-border: rgba(255, 255, 255, 0.1);
-  --backdrop: rgba(15, 20, 30, 0.34);
-  --thumb-ring: rgba(17, 24, 39, 0.08);
-  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05), 0 0 0 1px rgba(15, 23, 42, 0.025);
-  --shadow: 0 3px 10px rgba(15, 23, 42, 0.06), 0 14px 32px rgba(15, 23, 42, 0.09);
-  --shadow-lg: 0 14px 32px rgba(15, 23, 42, 0.12), 0 28px 64px rgba(15, 23, 42, 0.18);
+  --float-border: rgba(255, 255, 255, 0.11);
+  --backdrop: rgba(16, 20, 28, 0.34);
+  --thumb-ring: rgba(23, 26, 32, 0.1);
+  --shadow-sm: 0 1px 2px rgba(18, 22, 30, 0.055), 0 0 0 1px rgba(18, 22, 30, 0.03);
+  --shadow: 0 4px 12px rgba(18, 22, 30, 0.07), 0 14px 32px rgba(18, 22, 30, 0.09);
+  --shadow-lg: 0 14px 32px rgba(18, 22, 30, 0.12), 0 30px 68px rgba(18, 22, 30, 0.16);
   color-scheme: light;
 }
 
-/* ---------- 3. Light: Bamboo Mist (柔雾青笺) ---------- */
-:root[data-theme="light"][data-palette="bamboo-mist"] {
-  --bg: #f2f5f2;
-  --panel: #fafcfa;
+/* ---------- 2. Light: Linen Folio (亚麻书页) ---------- */
+:root[data-theme="light"][data-palette="linen-folio"] {
+  --sidebar: #e9e7e0;
+  --bg: #f0eee8;
+  --panel: #f7f5f0;
+  --surface-card: #fbf9f5;
   --elevated: #ffffff;
-  --sidebar: #e8eee8;
-  --soft: #dfe7e0;
-  --soft-hover: #d1ddd3;
-  --track: #dde6de;
-  --line: rgba(22, 36, 28, 0.08);
-  --line-strong: rgba(22, 36, 28, 0.16);
-  --inset-hi: inset 0 1px 0 rgba(255, 255, 255, 0.88);
-  --text: #19241e;
-  --text-2: #48594f;
-  --muted: #76887d;
-  --ink: #1c2d24;
-  --on-ink: #f7fbf8;
-  --accent: #2d7a62;
-  --accent-soft: #e2f2eb;
-  --accent-text: #1f614d;
-  --active-line: #e6f2ec;
-  --mark: #cbe8da;
-  --ok: #1f7a5a;
-  --ok-soft: #e2f3eb;
-  --danger: #bf3d34;
-  --danger-soft: #fcebeb;
-  --float-bg: #1b2922;
-  --float-fg: #f5faf7;
+  --overlay: #ffffff;
+  --surface-bubble: #e5e3db;
+  --track: #e4e2da;
+  --hover-fill: rgba(26, 29, 27, 0.045);
+  --active-fill: rgba(26, 29, 27, 0.085);
+  --soft: #e6e4dc;
+  --soft-hover: #dbd8ce;
+  --line: rgba(26, 29, 27, 0.08);
+  --line-strong: rgba(26, 29, 27, 0.155);
+  --rim-top: inset 0 1px 0 rgba(255, 255, 255, 0.88);
+  --inset-hi: var(--rim-top);
+  --contact-shadow: 0 1px 2px rgba(24, 28, 24, 0.055), 0 0 0 1px rgba(24, 28, 24, 0.03);
+  --text: #1a1d1b;
+  --text-2: #494e4a;
+  --muted: #636863;
+  --icon-muted: #676c67;
+  --ink: #1b2621;
+  --on-ink: #fbf9f5;
+  --accent: #1f6b56;
+  --accent-soft: #e3f0eb;
+  --accent-text: #175947;
+  --active-line: #e7f2ee;
+  --mark: #cbe5dc;
+  --ok: #1b7656;
+  --ok-soft: #e2f2eb;
+  --danger: #be382b;
+  --danger-soft: #fdeceb;
+  --float-bg: #1c2420;
+  --float-fg: #f7faf8;
   --float-hover: rgba(255, 255, 255, 0.14);
-  --float-border: rgba(255, 255, 255, 0.1);
-  --backdrop: rgba(18, 28, 22, 0.34);
-  --thumb-ring: rgba(22, 36, 28, 0.09);
-  --shadow-sm: 0 1px 2px rgba(20, 34, 26, 0.05), 0 0 0 1px rgba(20, 34, 26, 0.025);
-  --shadow: 0 2px 8px rgba(20, 34, 26, 0.06), 0 12px 30px rgba(20, 34, 26, 0.09);
-  --shadow-lg: 0 12px 28px rgba(20, 34, 26, 0.12), 0 28px 64px rgba(20, 34, 26, 0.18);
+  --float-border: rgba(255, 255, 255, 0.11);
+  --backdrop: rgba(20, 24, 21, 0.34);
+  --thumb-ring: rgba(26, 29, 27, 0.1);
+  --shadow-sm: 0 1px 2px rgba(24, 28, 24, 0.055), 0 0 0 1px rgba(24, 28, 24, 0.03);
+  --shadow: 0 4px 12px rgba(24, 28, 24, 0.07), 0 14px 32px rgba(24, 28, 24, 0.09);
+  --shadow-lg: 0 14px 32px rgba(24, 28, 24, 0.12), 0 30px 68px rgba(24, 28, 24, 0.16);
   color-scheme: light;
 }
 
-/* ---------- 4. Light: Apricot Study (柔杏书房) ---------- */
-:root[data-theme="light"][data-palette="apricot-study"] {
-  --bg: #faf4ed;
-  --panel: #fffcf8;
+/* ---------- 3. Light: Silver Console (阳极银台) ---------- */
+:root[data-theme="light"][data-palette="silver-console"] {
+  --sidebar: #e4e7ef;
+  --bg: #eceff5;
+  --panel: #f4f6fa;
+  --surface-card: #fafbfe;
   --elevated: #ffffff;
-  --sidebar: #f2e9df;
-  --soft: #ebe0d4;
-  --soft-hover: #dfd2c2;
-  --track: #e9ded2;
-  --line: rgba(46, 34, 30, 0.08);
-  --line-strong: rgba(46, 34, 30, 0.16);
-  --inset-hi: inset 0 1px 0 rgba(255, 255, 255, 0.88);
-  --text: #2b211e;
-  --text-2: #63524c;
-  --muted: #938078;
-  --ink: #2f2320;
-  --on-ink: #fffaf5;
-  --accent: #b85262;
-  --accent-soft: #faeaec;
-  --accent-text: #9b3b4b;
-  --active-line: #f8ebec;
-  --mark: #f6d4d8;
-  --ok: #287866;
-  --ok-soft: #e5f3ef;
-  --danger: #c03a44;
-  --danger-soft: #fcebed;
-  --float-bg: #2b211e;
-  --float-fg: #fffaf5;
+  --overlay: #ffffff;
+  --surface-bubble: #e2e5ee;
+  --track: #e1e4ed;
+  --hover-fill: rgba(20, 24, 36, 0.045);
+  --active-fill: rgba(20, 24, 36, 0.085);
+  --soft: #e4e7f0;
+  --soft-hover: #d8dce8;
+  --line: rgba(20, 24, 36, 0.08);
+  --line-strong: rgba(20, 24, 36, 0.15);
+  --rim-top: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --inset-hi: var(--rim-top);
+  --contact-shadow: 0 1px 2px rgba(15, 23, 42, 0.055), 0 0 0 1px rgba(15, 23, 42, 0.03);
+  --text: #141824;
+  --text-2: #434a5e;
+  --muted: #61677a;
+  --icon-muted: #656b7e;
+  --ink: #171c2b;
+  --on-ink: #fafbfe;
+  --accent: #3d4fd1;
+  --accent-soft: #e8ebfa;
+  --accent-text: #3142b8;
+  --active-line: #eceffd;
+  --mark: #d4dbfa;
+  --ok: #177858;
+  --ok-soft: #e3f4ed;
+  --danger: #c43636;
+  --danger-soft: #fdecec;
+  --float-bg: #171c2b;
+  --float-fg: #f8fafc;
   --float-hover: rgba(255, 255, 255, 0.14);
-  --float-border: rgba(255, 255, 255, 0.1);
-  --backdrop: rgba(34, 24, 20, 0.34);
-  --thumb-ring: rgba(46, 34, 30, 0.09);
-  --shadow-sm: 0 1px 2px rgba(42, 30, 26, 0.05), 0 0 0 1px rgba(42, 30, 26, 0.025);
-  --shadow: 0 2px 8px rgba(42, 30, 26, 0.06), 0 12px 30px rgba(42, 30, 26, 0.09);
-  --shadow-lg: 0 12px 28px rgba(42, 30, 26, 0.12), 0 28px 64px rgba(42, 30, 26, 0.18);
+  --float-border: rgba(255, 255, 255, 0.11);
+  --backdrop: rgba(15, 20, 32, 0.34);
+  --thumb-ring: rgba(20, 24, 36, 0.09);
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.055), 0 0 0 1px rgba(15, 23, 42, 0.03);
+  --shadow: 0 4px 12px rgba(15, 23, 42, 0.07), 0 14px 32px rgba(15, 23, 42, 0.09);
+  --shadow-lg: 0 14px 32px rgba(15, 23, 42, 0.12), 0 30px 68px rgba(15, 23, 42, 0.16);
   color-scheme: light;
 }
 
-/* ---------- 5. Dark Default: Warm Charcoal (暖炭书房) ---------- */
+/* ---------- 4. Light: Warm Paper (暖宣纸 · 精修去眩光版) ---------- */
+:root[data-theme="light"][data-palette="warm-paper"] {
+  --sidebar: #ebe5da;
+  --bg: #f3efe7;
+  --panel: #f9f6f0;
+  --surface-card: #fcfbf8;
+  --elevated: #ffffff;
+  --overlay: #ffffff;
+  --surface-bubble: #e8e2d7;
+  --track: #e7e1d6;
+  --hover-fill: rgba(31, 28, 24, 0.045);
+  --active-fill: rgba(31, 28, 24, 0.085);
+  --soft: #e9e3d8;
+  --soft-hover: #ded6c8;
+  --line: rgba(31, 28, 24, 0.08);
+  --line-strong: rgba(31, 28, 24, 0.155);
+  --rim-top: inset 0 1px 0 rgba(255, 255, 255, 0.88);
+  --inset-hi: var(--rim-top);
+  --contact-shadow: 0 1px 2px rgba(31, 26, 20, 0.055), 0 0 0 1px rgba(31, 26, 20, 0.03);
+  --text: #1f1c18;
+  --text-2: #524b42;
+  --muted: #6d665d;
+  --icon-muted: #716a61;
+  --ink: #211d18;
+  --on-ink: #fcfbf8;
+  --accent: #c95220;
+  --accent-soft: #fcece4;
+  --accent-text: #a93d10;
+  --active-line: #fbf0e7;
+  --mark: #fadcc3;
+  --ok: #1d7858;
+  --ok-soft: #e5f3ed;
+  --danger: #bf392b;
+  --danger-soft: #fdeceb;
+  --float-bg: #211d18;
+  --float-fg: #fbfaf7;
+  --float-hover: rgba(255, 255, 255, 0.14);
+  --float-border: rgba(255, 255, 255, 0.11);
+  --backdrop: rgba(22, 18, 14, 0.34);
+  --thumb-ring: rgba(31, 28, 24, 0.095);
+  --shadow-sm: 0 1px 2px rgba(31, 26, 20, 0.055), 0 0 0 1px rgba(31, 26, 20, 0.03);
+  --shadow: 0 4px 12px rgba(31, 26, 20, 0.07), 0 14px 32px rgba(31, 26, 20, 0.09);
+  --shadow-lg: 0 14px 32px rgba(31, 26, 20, 0.12), 0 30px 68px rgba(31, 26, 20, 0.16);
+  color-scheme: light;
+}
+
+/* ---------- 5. Dark Default: Graphite Desk (石墨仪器) ---------- */
 :root[data-theme="dark"],
+:root[data-theme="dark"][data-palette="graphite-desk"] {
+  --sidebar: #0d0f13;
+  --bg: #12151a;
+  --panel: #171a20;
+  --surface-card: #1e222a;
+  --elevated: #262b35;
+  --overlay: rgba(34, 39, 48, 0.94);
+  --surface-bubble: #252a33;
+  --track: #1a1e25;
+  --hover-fill: rgba(236, 239, 244, 0.055);
+  --active-fill: rgba(236, 239, 244, 0.095);
+  --soft: #232832;
+  --soft-hover: #2d3340;
+  --line: rgba(236, 239, 244, 0.085);
+  --line-strong: rgba(236, 239, 244, 0.17);
+  --rim-top: inset 0 1px 0 rgba(255, 255, 255, 0.065);
+  --inset-hi: var(--rim-top);
+  --contact-shadow: none;
+  --text: #eceff4;
+  --text-2: #b4bcc9;
+  --muted: #9099a8;
+  --icon-muted: #949dac;
+  --ink: #e6ebf3;
+  --on-ink: #111419;
+  --accent: #4fb3c2;
+  --accent-soft: rgba(79, 179, 194, 0.16);
+  --accent-text: #78cedb;
+  --active-line: #1b2b31;
+  --mark: rgba(79, 179, 194, 0.28);
+  --ok: #4ec499;
+  --ok-soft: rgba(78, 196, 153, 0.15);
+  --danger: #f2746b;
+  --danger-soft: rgba(242, 116, 107, 0.15);
+  --float-bg: #262b35;
+  --float-fg: #f1f4f9;
+  --float-hover: rgba(255, 255, 255, 0.12);
+  --float-border: rgba(236, 239, 244, 0.18);
+  --backdrop: rgba(4, 6, 10, 0.64);
+  --thumb-ring: rgba(236, 239, 244, 0.12);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.36);
+  --shadow: 0 8px 24px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(236, 239, 244, 0.05);
+  --shadow-lg: 0 18px 44px rgba(0, 0, 0, 0.58), 0 0 0 1px rgba(236, 239, 244, 0.07);
+  color-scheme: dark;
+}
+
+/* ---------- 6. Dark: Darkroom Carbon (暗室黑曜 · 纯中性深曜) ---------- */
+:root[data-theme="dark"][data-palette="darkroom-carbon"] {
+  --sidebar: #08090b;
+  --bg: #0c0d0f;
+  --panel: #121316;
+  --surface-card: #191b1f;
+  --elevated: #22252b;
+  --overlay: rgba(28, 31, 38, 0.94);
+  --surface-bubble: #202329;
+  --track: #15171b;
+  --hover-fill: rgba(238, 240, 244, 0.055);
+  --active-fill: rgba(238, 240, 244, 0.095);
+  --soft: #1f2228;
+  --soft-hover: #292d35;
+  --line: rgba(238, 240, 244, 0.085);
+  --line-strong: rgba(238, 240, 244, 0.17);
+  --rim-top: inset 0 1px 0 rgba(255, 255, 255, 0.065);
+  --inset-hi: var(--rim-top);
+  --contact-shadow: none;
+  --text: #eef0f4;
+  --text-2: #b4b8c2;
+  --muted: #9095a0;
+  --icon-muted: #9499a4;
+  --ink: #eaeef4;
+  --on-ink: #0d0f12;
+  --accent: #d6a856;
+  --accent-soft: rgba(214, 168, 86, 0.16);
+  --accent-text: #e8c47d;
+  --active-line: #1e1c16;
+  --mark: rgba(214, 168, 86, 0.28);
+  --ok: #54c69a;
+  --ok-soft: rgba(84, 198, 154, 0.15);
+  --danger: #f0766c;
+  --danger-soft: rgba(240, 118, 108, 0.15);
+  --float-bg: #22252b;
+  --float-fg: #f3f5f8;
+  --float-hover: rgba(255, 255, 255, 0.12);
+  --float-border: rgba(238, 240, 244, 0.18);
+  --backdrop: rgba(2, 3, 5, 0.68);
+  --thumb-ring: rgba(238, 240, 244, 0.12);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(238, 240, 244, 0.05);
+  --shadow-lg: 0 18px 44px rgba(0, 0, 0, 0.64), 0 0 0 1px rgba(238, 240, 244, 0.07);
+  color-scheme: dark;
+}
+
+/* ---------- 7. Dark: Studio Slate (冷灰控台 · 纯中性通透灰) ---------- */
+:root[data-theme="dark"][data-palette="studio-slate"] {
+  --sidebar: #131518;
+  --bg: #181a1e;
+  --panel: #1f2227;
+  --surface-card: #272b31;
+  --elevated: #31363e;
+  --overlay: rgba(41, 45, 53, 0.94);
+  --surface-bubble: #2e333b;
+  --track: #22262c;
+  --hover-fill: rgba(240, 242, 246, 0.055);
+  --active-fill: rgba(240, 242, 246, 0.095);
+  --soft: #2b2f36;
+  --soft-hover: #353a42;
+  --line: rgba(240, 242, 246, 0.09);
+  --line-strong: rgba(240, 242, 246, 0.175);
+  --rim-top: inset 0 1px 0 rgba(255, 255, 255, 0.075);
+  --inset-hi: var(--rim-top);
+  --contact-shadow: none;
+  --text: #f0f2f6;
+  --text-2: #bec4ce;
+  --muted: #9ea5b0;
+  --icon-muted: #a2a9b4;
+  --ink: #eef1f6;
+  --on-ink: #16181c;
+  --accent: #7b9cff;
+  --accent-soft: rgba(123, 156, 255, 0.17);
+  --accent-text: #a6beff;
+  --active-line: #232a3a;
+  --mark: rgba(123, 156, 255, 0.28);
+  --ok: #54cca0;
+  --ok-soft: rgba(84, 204, 160, 0.15);
+  --danger: #f47c7c;
+  --danger-soft: rgba(244, 124, 124, 0.15);
+  --float-bg: #31363e;
+  --float-fg: #f4f6fa;
+  --float-hover: rgba(255, 255, 255, 0.12);
+  --float-border: rgba(240, 242, 246, 0.19);
+  --backdrop: rgba(8, 10, 14, 0.6);
+  --thumb-ring: rgba(240, 242, 246, 0.12);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.34);
+  --shadow: 0 8px 24px rgba(0, 0, 0, 0.42), 0 0 0 1px rgba(240, 242, 246, 0.05);
+  --shadow-lg: 0 18px 44px rgba(0, 0, 0, 0.54), 0 0 0 1px rgba(240, 242, 246, 0.07);
+  color-scheme: dark;
+}
+
+/* ---------- 8. Dark: Warm Charcoal (净炭书房 · 克制中性炭黑) ---------- */
 :root[data-theme="dark"][data-palette="warm-charcoal"] {
-  --bg: #151412;
-  --panel: #1e1c1a;
-  --elevated: #34302b;
-  --sidebar: #100f0e;
-  --soft: #262320;
-  --soft-hover: #312d29;
-  --track: #221f1c;
-  --line: rgba(242, 238, 231, 0.085);
-  --line-strong: rgba(242, 238, 231, 0.165);
-  --inset-hi: inset 0 1px 0 rgba(255, 250, 242, 0.075);
-  --text: #ece8e1;
-  --text-2: #b8b1a7;
-  --muted: #847d74;
-  --ink: #ece8e1;
-  --on-ink: #141312;
-  --accent: #ef8354;
-  --accent-soft: rgba(239, 131, 84, 0.16);
-  --accent-text: #f7a681;
-  --active-line: #28211b;
-  --mark: rgba(239, 131, 84, 0.3);
-  --ok: #4ec499;
-  --ok-soft: rgba(78, 196, 153, 0.15);
+  --sidebar: #0e0e0d;
+  --bg: #131312;
+  --panel: #191918;
+  --surface-card: #21211f;
+  --elevated: #2a2a28;
+  --overlay: rgba(36, 36, 34, 0.94);
+  --surface-bubble: #282825;
+  --track: #1c1c1a;
+  --hover-fill: rgba(239, 238, 233, 0.055);
+  --active-fill: rgba(239, 238, 233, 0.095);
+  --soft: #252523;
+  --soft-hover: #2f2f2c;
+  --line: rgba(239, 238, 233, 0.085);
+  --line-strong: rgba(239, 238, 233, 0.17);
+  --rim-top: inset 0 1px 0 rgba(255, 254, 249, 0.065);
+  --inset-hi: var(--rim-top);
+  --contact-shadow: none;
+  --text: #efeee9;
+  --text-2: #bab9b2;
+  --muted: #96958e;
+  --icon-muted: #9a9992;
+  --ink: #efeee9;
+  --on-ink: #131312;
+  --accent: #ea8a5c;
+  --accent-soft: rgba(234, 138, 92, 0.16);
+  --accent-text: #f6ae8a;
+  --active-line: #241e1a;
+  --mark: rgba(234, 138, 92, 0.28);
+  --ok: #50c599;
+  --ok-soft: rgba(80, 197, 153, 0.15);
   --danger: #f2746b;
   --danger-soft: rgba(242, 116, 107, 0.15);
-  --float-bg: #2c2824;
-  --float-fg: #f4f0e9;
+  --float-bg: #2a2a28;
+  --float-fg: #f4f3ee;
   --float-hover: rgba(255, 255, 255, 0.12);
-  --float-border: rgba(242, 238, 231, 0.18);
-  --backdrop: rgba(4, 4, 3, 0.62);
-  --thumb-ring: rgba(242, 238, 231, 0.11);
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.38);
-  --shadow: 0 4px 14px rgba(0, 0, 0, 0.42), 0 16px 36px rgba(0, 0, 0, 0.48);
-  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.56), 0 32px 72px rgba(0, 0, 0, 0.64);
-  color-scheme: dark;
-}
-
-/* ---------- 6. Dark: Deep Slate (深夜石板) ---------- */
-:root[data-theme="dark"][data-palette="deep-slate"] {
-  --bg: #131820;
-  --panel: #1b222e;
-  --elevated: #313d50;
-  --sidebar: #0e1218;
-  --soft: #232c3a;
-  --soft-hover: #2d384a;
-  --track: #1f2734;
-  --line: rgba(218, 229, 245, 0.09);
-  --line-strong: rgba(218, 229, 245, 0.175);
-  --inset-hi: inset 0 1px 0 rgba(226, 238, 255, 0.08);
-  --text: #e7edf7;
-  --text-2: #aab7cb;
-  --muted: #7888a0;
-  --ink: #e7edf7;
-  --on-ink: #11161e;
-  --accent: #6ea8fe;
-  --accent-soft: rgba(110, 168, 254, 0.16);
-  --accent-text: #9bc4ff;
-  --active-line: #1f2c40;
-  --mark: rgba(110, 168, 254, 0.28);
-  --ok: #4cc99b;
-  --ok-soft: rgba(76, 201, 155, 0.15);
-  --danger: #f27474;
-  --danger-soft: rgba(242, 116, 116, 0.15);
-  --float-bg: #263142;
-  --float-fg: #f0f5fc;
-  --float-hover: rgba(255, 255, 255, 0.12);
-  --float-border: rgba(218, 229, 245, 0.2);
-  --backdrop: rgba(4, 7, 12, 0.64);
-  --thumb-ring: rgba(218, 229, 245, 0.12);
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow: 0 4px 14px rgba(0, 0, 0, 0.44), 0 16px 36px rgba(0, 0, 0, 0.5);
-  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.58), 0 32px 72px rgba(0, 0, 0, 0.68);
-  color-scheme: dark;
-}
-
-/* ---------- 7. Dark: Obsidian Cinema (黑曜影院) ---------- */
-:root[data-theme="dark"][data-palette="obsidian-cinema"] {
-  --bg: #0d0d0f;
-  --panel: #16161a;
-  --elevated: #2e2e36;
-  --sidebar: #08080a;
-  --soft: #1f1f25;
-  --soft-hover: #2a2a32;
-  --track: #1b1b20;
-  --line: rgba(242, 242, 248, 0.09);
-  --line-strong: rgba(242, 242, 248, 0.175);
-  --inset-hi: inset 0 1px 0 rgba(255, 255, 255, 0.08);
-  --text: #f0f0f3;
-  --text-2: #afb1bb;
-  --muted: #7a7c88;
-  --ink: #f0f0f3;
-  --on-ink: #0d0d0f;
-  --accent: #e8a246;
-  --accent-soft: rgba(232, 162, 70, 0.16);
-  --accent-text: #f3be72;
-  --active-line: #231d14;
-  --mark: rgba(232, 162, 70, 0.28);
-  --ok: #4ec499;
-  --ok-soft: rgba(78, 196, 153, 0.15);
-  --danger: #f2746b;
-  --danger-soft: rgba(242, 116, 107, 0.15);
-  --float-bg: #24242b;
-  --float-fg: #f5f5f8;
-  --float-hover: rgba(255, 255, 255, 0.12);
-  --float-border: rgba(255, 255, 255, 0.19);
-  --backdrop: rgba(0, 0, 0, 0.7);
-  --thumb-ring: rgba(255, 255, 255, 0.12);
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.48);
-  --shadow: 0 4px 16px rgba(0, 0, 0, 0.54), 0 18px 40px rgba(0, 0, 0, 0.62);
-  --shadow-lg: 0 18px 44px rgba(0, 0, 0, 0.68), 0 34px 78px rgba(0, 0, 0, 0.76);
-  color-scheme: dark;
-}
-
-/* ---------- 8. Dark: Pine Ink (松烟墨绿) ---------- */
-:root[data-theme="dark"][data-palette="pine-ink"] {
-  --bg: #121b17;
-  --panel: #192520;
-  --elevated: #2e4239;
-  --sidebar: #0d1411;
-  --soft: #21302a;
-  --soft-hover: #2b3e36;
-  --track: #1d2a24;
-  --line: rgba(220, 236, 226, 0.09);
-  --line-strong: rgba(220, 236, 226, 0.175);
-  --inset-hi: inset 0 1px 0 rgba(226, 245, 233, 0.08);
-  --text: #eaece6;
-  --text-2: #adbab0;
-  --muted: #7a8c80;
-  --ink: #e8ebe4;
-  --on-ink: #111a16;
-  --accent: #d4a857;
-  --accent-soft: rgba(212, 168, 87, 0.16);
-  --accent-text: #e6c27b;
-  --active-line: #232d22;
-  --mark: rgba(212, 168, 87, 0.28);
-  --ok: #56cc9d;
-  --ok-soft: rgba(86, 204, 157, 0.15);
-  --danger: #ed786e;
-  --danger-soft: rgba(237, 120, 110, 0.15);
-  --float-bg: #24352d;
-  --float-fg: #eff3ec;
-  --float-hover: rgba(255, 255, 255, 0.12);
-  --float-border: rgba(220, 236, 226, 0.2);
-  --backdrop: rgba(4, 10, 7, 0.64);
-  --thumb-ring: rgba(220, 236, 226, 0.12);
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow: 0 4px 14px rgba(0, 0, 0, 0.44), 0 16px 36px rgba(0, 0, 0, 0.5);
-  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.58), 0 32px 72px rgba(0, 0, 0, 0.68);
+  --float-border: rgba(239, 238, 233, 0.18);
+  --backdrop: rgba(4, 4, 4, 0.64);
+  --thumb-ring: rgba(239, 238, 233, 0.11);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.36);
+  --shadow: 0 8px 24px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(239, 238, 233, 0.05);
+  --shadow-lg: 0 18px 44px rgba(0, 0, 0, 0.58), 0 0 0 1px rgba(239, 238, 233, 0.07);
   color-scheme: dark;
 }

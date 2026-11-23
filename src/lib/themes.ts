@@ -1,16 +1,23 @@
-export type LightThemeId = "warm-paper" | "pure-morning" | "bamboo-mist" | "apricot-study";
-export type DarkThemeId = "warm-charcoal" | "deep-slate" | "obsidian-cinema" | "pine-ink";
+export type LightThemeId = "stone-proof" | "linen-folio" | "silver-console" | "warm-paper";
+export type DarkThemeId = "graphite-desk" | "darkroom-carbon" | "studio-slate" | "warm-charcoal";
 export type PaletteId = LightThemeId | DarkThemeId;
+
+export interface ThemeSeedPreview {
+  canvas: string;
+  accent: string;
+}
 
 export interface ThemeMeta<T extends PaletteId = PaletteId> {
   id: T;
   mode: "light" | "dark";
   name: string;
   desc: string;
+  seed: ThemeSeedPreview;
   preview: {
     sidebar: string;
     bg: string;
     panel: string;
+    card: string;
     line: string;
     text: string;
     muted: string;
@@ -18,131 +25,159 @@ export interface ThemeMeta<T extends PaletteId = PaletteId> {
   };
 }
 
-export const DEFAULT_LIGHT_THEME: LightThemeId = "warm-paper";
-export const DEFAULT_DARK_THEME: DarkThemeId = "warm-charcoal";
+export const DEFAULT_LIGHT_THEME: LightThemeId = "stone-proof";
+export const DEFAULT_DARK_THEME: DarkThemeId = "graphite-desk";
+
+const LEGACY_LIGHT_MIGRATION: Readonly<Record<string, LightThemeId>> = {
+  "pure-morning": "silver-console",
+  "bamboo-mist": "linen-folio",
+  "apricot-study": "warm-paper",
+};
+
+const LEGACY_DARK_MIGRATION: Readonly<Record<string, DarkThemeId>> = {
+  "deep-slate": "studio-slate",
+  "obsidian-cinema": "graphite-desk",
+  "pine-ink": "darkroom-carbon",
+};
 
 export const LIGHT_THEMES: ThemeMeta<LightThemeId>[] = [
+  {
+    id: "stone-proof",
+    mode: "light",
+    name: "素石校对",
+    desc: "中性素石柔纸 · 普鲁士青点缀",
+    seed: { canvas: "#eef0f4", accent: "#0f6270" },
+    preview: {
+      sidebar: "#e7eaef",
+      bg: "#eef0f4",
+      panel: "#f5f6f8",
+      card: "#fafbfd",
+      line: "#dfe2e8",
+      text: "#171a20",
+      muted: "#626874",
+      accent: "#0f6270",
+    },
+  },
+  {
+    id: "linen-folio",
+    mode: "light",
+    name: "亚麻书页",
+    desc: "低眩光亚麻底 · 深松青点缀",
+    seed: { canvas: "#f0eee8", accent: "#1f6b56" },
+    preview: {
+      sidebar: "#e9e7e0",
+      bg: "#f0eee8",
+      panel: "#f7f5f0",
+      card: "#fbf9f5",
+      line: "#e0ded6",
+      text: "#1a1d1b",
+      muted: "#636863",
+      accent: "#1f6b56",
+    },
+  },
+  {
+    id: "silver-console",
+    mode: "light",
+    name: "阳极银台",
+    desc: "精密冷银灰 · 深钴蓝点缀",
+    seed: { canvas: "#eceff5", accent: "#3d4fd1" },
+    preview: {
+      sidebar: "#e4e7ef",
+      bg: "#eceff5",
+      panel: "#f4f6fa",
+      card: "#fafbfe",
+      line: "#dde1ec",
+      text: "#141824",
+      muted: "#61677a",
+      accent: "#3d4fd1",
+    },
+  },
   {
     id: "warm-paper",
     mode: "light",
     name: "暖宣纸",
-    desc: "温和纸感暖白 · 陶土点缀",
+    desc: "精修纸韵暖白 · 陶土点缀",
+    seed: { canvas: "#f3efe7", accent: "#c95220" },
     preview: {
-      sidebar: "#efece5",
-      bg: "#f7f5f0",
-      panel: "#ffffff",
-      line: "#e3dfd7",
-      text: "#1c1a17",
-      muted: "#9a9389",
-      accent: "#d95b26",
-    },
-  },
-  {
-    id: "pure-morning",
-    mode: "light",
-    name: "晨光极简",
-    desc: "清爽冷白画布 · 靛蓝点缀",
-    preview: {
-      sidebar: "#eff1f5",
-      bg: "#f7f8fa",
-      panel: "#ffffff",
-      line: "#dfe4ec",
-      text: "#141821",
-      muted: "#8792a4",
-      accent: "#3b6cf5",
-    },
-  },
-  {
-    id: "bamboo-mist",
-    mode: "light",
-    name: "柔雾青笺",
-    desc: "护眼低饱和青灰 · 深松点缀",
-    preview: {
-      sidebar: "#e8eee8",
-      bg: "#f2f5f2",
-      panel: "#fafcfa",
-      line: "#d7e1d8",
-      text: "#19241e",
-      muted: "#7c8e83",
-      accent: "#2d7a62",
-    },
-  },
-  {
-    id: "apricot-study",
-    mode: "light",
-    name: "柔杏书房",
-    desc: "柔和奶油杏纸 · 玫瑰陶点缀",
-    preview: {
-      sidebar: "#f2e9df",
-      bg: "#faf4ed",
-      panel: "#fffcf8",
-      line: "#e5d9cc",
-      text: "#2b211e",
-      muted: "#99857d",
-      accent: "#b85262",
+      sidebar: "#ebe5da",
+      bg: "#f3efe7",
+      panel: "#f9f6f0",
+      card: "#fcfbf8",
+      line: "#e4ded3",
+      text: "#1f1c18",
+      muted: "#6d665d",
+      accent: "#c95220",
     },
   },
 ];
 
 export const DARK_THEMES: ThemeMeta<DarkThemeId>[] = [
   {
+    id: "graphite-desk",
+    mode: "dark",
+    name: "石墨仪器",
+    desc: "中性石墨深炭 · 冰青点缀",
+    seed: { canvas: "#12151a", accent: "#4fb3c2" },
+    preview: {
+      sidebar: "#0d0f13",
+      bg: "#12151a",
+      panel: "#171a20",
+      card: "#1e222a",
+      line: "#2b303b",
+      text: "#eceff4",
+      muted: "#9099a8",
+      accent: "#4fb3c2",
+    },
+  },
+  {
+    id: "darkroom-carbon",
+    mode: "dark",
+    name: "暗室黑曜",
+    desc: "深邃纯中性近黑 · 哑光黄铜",
+    seed: { canvas: "#0c0d0f", accent: "#d6a856" },
+    preview: {
+      sidebar: "#08090b",
+      bg: "#0c0d0f",
+      panel: "#121316",
+      card: "#191b1f",
+      line: "#282b31",
+      text: "#eef0f4",
+      muted: "#9095a0",
+      accent: "#d6a856",
+    },
+  },
+  {
+    id: "studio-slate",
+    mode: "dark",
+    name: "冷灰控台",
+    desc: "通透中深中性灰 · 柔长春花蓝",
+    seed: { canvas: "#181a1e", accent: "#7b9cff" },
+    preview: {
+      sidebar: "#131518",
+      bg: "#181a1e",
+      panel: "#1f2227",
+      card: "#272b31",
+      line: "#363b44",
+      text: "#f0f2f6",
+      muted: "#9ea5b0",
+      accent: "#7b9cff",
+    },
+  },
+  {
     id: "warm-charcoal",
     mode: "dark",
-    name: "暖炭书房",
-    desc: "温和暖炭黑灰 · 柔陶点缀",
+    name: "净炭书房",
+    desc: "克制中性暖炭 · 柔陶点缀",
+    seed: { canvas: "#131312", accent: "#ea8a5c" },
     preview: {
-      sidebar: "#100f0e",
-      bg: "#151412",
-      panel: "#1f1d1a",
-      line: "#2f2c28",
-      text: "#ece8e1",
-      muted: "#888279",
-      accent: "#ef8354",
-    },
-  },
-  {
-    id: "deep-slate",
-    mode: "dark",
-    name: "深夜石板",
-    desc: "理性冷蓝石板 · 冰蓝点缀",
-    preview: {
-      sidebar: "#0e1218",
-      bg: "#131820",
-      panel: "#1c2430",
-      line: "#2d3849",
-      text: "#e7edf7",
-      muted: "#7c8ca3",
-      accent: "#6ea8fe",
-    },
-  },
-  {
-    id: "obsidian-cinema",
-    mode: "dark",
-    name: "黑曜影院",
-    desc: "深邃近纯黑底 · 暖琥珀点缀",
-    preview: {
-      sidebar: "#08080a",
-      bg: "#0d0d0f",
-      panel: "#18181c",
-      line: "#2a2a31",
-      text: "#f0f0f3",
-      muted: "#7f818e",
-      accent: "#e8a246",
-    },
-  },
-  {
-    id: "pine-ink",
-    mode: "dark",
-    name: "松烟墨绿",
-    desc: "沉静深松墨绿 · 黄铜点缀",
-    preview: {
-      sidebar: "#0d1411",
-      bg: "#121b17",
-      panel: "#1a2721",
-      line: "#2a3c34",
-      text: "#eaece6",
-      muted: "#7f9185",
-      accent: "#d4a857",
+      sidebar: "#0e0e0d",
+      bg: "#131312",
+      panel: "#191918",
+      card: "#21211f",
+      line: "#2f2f2c",
+      text: "#efeee9",
+      muted: "#96958e",
+      accent: "#ea8a5c",
     },
   },
 ];
@@ -151,11 +186,15 @@ const LIGHT_ID_SET = new Set<string>(LIGHT_THEMES.map((t) => t.id));
 const DARK_ID_SET = new Set<string>(DARK_THEMES.map((t) => t.id));
 
 export function normalizeLightTheme(id: unknown): LightThemeId {
-  return typeof id === "string" && LIGHT_ID_SET.has(id) ? (id as LightThemeId) : DEFAULT_LIGHT_THEME;
+  if (typeof id !== "string") return DEFAULT_LIGHT_THEME;
+  if (LIGHT_ID_SET.has(id)) return id as LightThemeId;
+  return LEGACY_LIGHT_MIGRATION[id] ?? DEFAULT_LIGHT_THEME;
 }
 
 export function normalizeDarkTheme(id: unknown): DarkThemeId {
-  return typeof id === "string" && DARK_ID_SET.has(id) ? (id as DarkThemeId) : DEFAULT_DARK_THEME;
+  if (typeof id !== "string") return DEFAULT_DARK_THEME;
+  if (DARK_ID_SET.has(id)) return id as DarkThemeId;
+  return LEGACY_DARK_MIGRATION[id] ?? DEFAULT_DARK_THEME;
 }
 
 export function getLightThemeMeta(id: LightThemeId): ThemeMeta<LightThemeId> {

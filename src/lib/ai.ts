@@ -450,6 +450,7 @@ async function askJson(
     messages: [{ role: "user", content: JSON.stringify(payload) }],
     maxTokens: 8000,
     jsonMode: provider.protocol === "openai",
+    quick: true,
     signal,
   });
 }
@@ -534,6 +535,7 @@ export async function makeEpisodeContext(
     messages: [{ role: "user", content: JSON.stringify({ title: o.title, show: o.show, notes, transcriptStart: opening }) }],
     maxTokens: 6000,
     jsonMode: provider.protocol === "openai",
+    quick: true,
     signal: o.signal,
   });
   const v = parseJson(answer) as Partial<EpisodeContext>;

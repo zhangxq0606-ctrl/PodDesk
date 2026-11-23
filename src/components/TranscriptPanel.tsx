@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDown,
   ArrowUp,
@@ -32,8 +32,11 @@ import {
 } from "../lib/jobs";
 import { CLOUD_ASR_PRESETS } from "../lib/providers";
 import { buildBlocks, downloadTextFile, renderTranscript, safeFileName, type SubFormat } from "../lib/subexport";
+import { computeWindow, rowBounds, VIRTUAL_OVERSCAN, VIRTUAL_THRESHOLD, type VirtualWindow } from "../lib/virtualList";
 import { resolveLocalModelId, useStore } from "../store";
 import { CassetteArt, WaveToTextArt } from "./Illustrations";
+
+const EMPTY_SEGMENTS: Segment[] = [];
 
 export function activeIndex(segments: Segment[], time: number): number {
   let lo = 0;
@@ -68,21 +71,34 @@ const Row = memo(function Row({
   seg,
   zh,
   active,
+  cueState,
+  edge,
   mode,
   pending,
   onSeek,
   query,
   currentHit,
+  rowPos,
+  onMeasure,
 }: {
   seg: Segment;
   zh?: string | null;
   active: boolean;
+  cueState?: "past" | "active" | "future";
+  edge?: "first" | "last" | "only";
   mode: string;
   pending: boolean;
   onSeek: (t: number) => void;
   query: string;
   currentHit: boolean;
+  rowPos: number;
+  onMeasure?: (pos: number, el: HTMLDivElement) => void;
 }) {
+  const elRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (elRef.current && onMeasure) onMeasure(rowPos, elRef.current);
+  }, [rowPos, onMeasure, zh, mode, pending, seg.text]);
+
   const showZh = mode !== "original";
   const showOrig = mode !== "translation" || (!zh && !pending);
   const handleClick = () => {
@@ -92,8 +108,12 @@ const Row = memo(function Row({
   };
   return (
     <div
+      ref={elRef}
       className={`line ${active ? "active" : ""} ${currentHit ? "hit" : ""}`}
+      data-row-pos={rowPos}
       data-active={active || undefined}
+      data-state={cueState}
+      data-edge={edge}
       data-hit={currentHit || undefined}
       onClick={handleClick}
     >
@@ -292,7 +312,7 @@ function NoTranscriptCard({ ep }: { ep: Episode }) {
     return (
       <div className="panel-empty gt-fade-in">
         <Loader2 size={24} className="spin muted" />
-        <p className="lead">正在查找官方字幕…</p>
+        <p className="lead thinking-shine">正在查找官方字幕…</p>
         <p className="muted small">优先拉取节目自带字幕或 RSS 官方文字稿</p>
       </div>
     );
@@ -434,6 +454,7 @@ export function TranscriptPanel({ ep }: { ep: Episode }) {
   const transcript = useJobs((s) => s.transcripts[ep.id]);
   const trJob = useJobs((s) => s.translations[ep.id]);
   const asrJob = useJobs((s) => s.asr[ep.id]);
+  const segments = transcript?.segments ?? EMPTY_SEGMENTS;
   const {
     mode,
     trEngine,
@@ -445,8 +466,6 @@ export function TranscriptPanel({ ep }: { ep: Episode }) {
     keyStatus,
     providerOverrides,
     seekToEpisode,
-    currentId,
-    curTime,
   } = useStore(
     useShallow((s) => ({
       mode: s.prefs.subtitleMode,
@@ -459,10 +478,9 @@ export function TranscriptPanel({ ep }: { ep: Episode }) {
       keyStatus: s.keyStatus,
       providerOverrides: s.providerOverrides,
       seekToEpisode: s.seekToEpisode,
-      currentId: s.current?.id,
-      curTime: s.time,
     })),
   );
+  const active = useStore((s) => (s.current?.id === ep.id ? activeIndex(segments, s.time) : -1));
   const savePrefs = useStore((s) => s.savePrefs);
   const getTranslateProvider = useStore((s) => s.getTranslateProvider);
   const isProviderReady = useStore((s) => s.isProviderReady);
@@ -479,8 +497,87 @@ export function TranscriptPanel({ ep }: { ep: Episode }) {
   const [glossaryOpen, setGlossaryOpen] = useState(false);
   const menuBoxRef = useRef<HTMLDivElement>(null);
 
-  const segments = transcript?.segments ?? [];
-  const active = currentId === ep.id ? activeIndex(segments, curTime) : -1;
+  const wantsZh = useMemo(() => !isMostlyChinese(segments), [segments]);
+  const displayMode: "bilingual" | "translation" | "original" = wantsZh
+    ? mode === "off"
+      ? "bilingual"
+      : mode
+    : "original";
+
+  const matches = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return null;
+    const items = trJob?.items;
+    return segments
+      .map((s, i) => (s.text.toLowerCase().includes(q) || items?.[i]?.toLowerCase().includes(q) ? i : -1))
+      .filter((i) => i >= 0);
+  }, [query, segments, trJob?.items]);
+
+  const rows = useMemo(() => matches ?? segments.map((_, i) => i), [matches, segments]);
+  const activePos = useMemo(
+    () => (active < 0 ? -1 : matches ? matches.indexOf(active) : active),
+    [active, matches],
+  );
+  const isVirtual = rows.length >= VIRTUAL_THRESHOLD;
+  const estRowH = displayMode === "bilingual" ? 72 : 48;
+
+  const heightsRef = useRef<Float32Array>(new Float32Array(0));
+  if (heightsRef.current.length !== rows.length) {
+    heightsRef.current = new Float32Array(rows.length).fill(estRowH);
+  }
+  const prevWidthRef = useRef(0);
+  const isVirtualRef = useRef(isVirtual);
+  isVirtualRef.current = isVirtual;
+  const measureRafRef = useRef(0);
+  const [win, setWin] = useState<VirtualWindow>(() => ({ start: 0, end: 60, topPad: 0, bottomPad: 0 }));
+
+  const recomputeWindow = useCallback(() => {
+    const wrap = listRef.current;
+    if (!wrap || !isVirtualRef.current) return;
+    const next = computeWindow(heightsRef.current, wrap.scrollTop, wrap.clientHeight || 600, VIRTUAL_OVERSCAN);
+    setWin((prev) =>
+      prev.start === next.start &&
+      prev.end === next.end &&
+      Math.abs(prev.topPad - next.topPad) < 1 &&
+      Math.abs(prev.bottomPad - next.bottomPad) < 1
+        ? prev
+        : next,
+    );
+  }, []);
+
+  const scheduleRecompute = useCallback(() => {
+    if (measureRafRef.current) return;
+    measureRafRef.current = window.requestAnimationFrame(() => {
+      measureRafRef.current = 0;
+      recomputeWindow();
+    });
+  }, [recomputeWindow]);
+
+  useEffect(() => {
+    return () => {
+      if (measureRafRef.current) window.cancelAnimationFrame(measureRafRef.current);
+    };
+  }, []);
+
+  const onMeasure = useCallback(
+    (pos: number, el: HTMLDivElement) => {
+      if (pos < 0 || pos >= heightsRef.current.length) return;
+      const h = el.getBoundingClientRect().height;
+      if (h > 0 && Math.abs(heightsRef.current[pos] - h) > 1) {
+        heightsRef.current[pos] = h;
+        if (isVirtualRef.current) scheduleRecompute();
+      }
+    },
+    [scheduleRecompute],
+  );
+
+  useLayoutEffect(() => {
+    heightsRef.current = new Float32Array(rows.length).fill(estRowH);
+    const wrap = listRef.current;
+    if (wrap && rows.length >= VIRTUAL_THRESHOLD) {
+      setWin(computeWindow(heightsRef.current, wrap.scrollTop, wrap.clientHeight || 600, VIRTUAL_OVERSCAN));
+    }
+  }, [ep.id, displayMode, rows, estRowH]);
 
   useEffect(() => {
     followRef.current = true;
@@ -496,30 +593,74 @@ export function TranscriptPanel({ ep }: { ep: Episode }) {
     [ep, seekToEpisode],
   );
 
+  const scrollToPos = useCallback((pos: number, behavior: ScrollBehavior = "smooth") => {
+    const wrap = listRef.current;
+    if (!wrap || pos < 0) return;
+    const existing = wrap.querySelector<HTMLElement>(`[data-row-pos="${pos}"]`);
+    if (existing) {
+      existing.scrollIntoView({ block: "center", behavior });
+      return;
+    }
+    const { top, height } = rowBounds(heightsRef.current, pos);
+    const vh = wrap.clientHeight || 600;
+    const targetTop = Math.max(0, top - vh / 2 + height / 2);
+    wrap.scrollTop = targetTop;
+    if (isVirtualRef.current) {
+      setWin(computeWindow(heightsRef.current, targetTop, vh, VIRTUAL_OVERSCAN));
+    }
+    window.requestAnimationFrame(() => {
+      listRef.current?.querySelector<HTMLElement>(`[data-row-pos="${pos}"]`)?.scrollIntoView({
+        block: "center",
+        behavior: "auto",
+      });
+    });
+  }, []);
+
   const checkActiveVisibility = useCallback(() => {
     const wrap = listRef.current;
-    if (!wrap || query) {
+    if (!wrap || query || activePos < 0) {
       setOffscreen(null);
       return;
     }
     const activeEl = wrap.querySelector<HTMLElement>("[data-active]");
-    if (!activeEl) {
-      setOffscreen(null);
+    if (activeEl) {
+      const box = wrap.getBoundingClientRect();
+      const rect = activeEl.getBoundingClientRect();
+      if (rect.bottom < box.top + 8) {
+        setOffscreen("above");
+        followRef.current = false;
+      } else if (rect.top > box.bottom - 8) {
+        setOffscreen("below");
+        followRef.current = false;
+      } else {
+        setOffscreen(null);
+        followRef.current = true;
+      }
       return;
     }
-    const box = wrap.getBoundingClientRect();
-    const rect = activeEl.getBoundingClientRect();
-    if (rect.bottom < box.top + 8) {
-      setOffscreen("above");
-      followRef.current = false;
-    } else if (rect.top > box.bottom - 8) {
-      setOffscreen("below");
-      followRef.current = false;
-    } else {
-      setOffscreen(null);
-      followRef.current = true;
+    if (isVirtualRef.current && heightsRef.current.length > activePos) {
+      const bounds = rowBounds(heightsRef.current, activePos);
+      const viewTop = Math.max(0, wrap.scrollTop - 10);
+      const viewBottom = viewTop + wrap.clientHeight;
+      if (bounds.bottom < viewTop + 8) {
+        setOffscreen("above");
+        followRef.current = false;
+      } else if (bounds.top > viewBottom - 8) {
+        setOffscreen("below");
+        followRef.current = false;
+      } else {
+        setOffscreen(null);
+        followRef.current = true;
+      }
+      return;
     }
-  }, [query]);
+    setOffscreen(null);
+  }, [query, activePos]);
+
+  const handleScroll = useCallback(() => {
+    recomputeWindow();
+    checkActiveVisibility();
+  }, [recomputeWindow, checkActiveVisibility]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -543,40 +684,40 @@ export function TranscriptPanel({ ep }: { ep: Episode }) {
   }, []);
 
   useEffect(() => {
-    if (active === prevActiveRef.current) return;
-    prevActiveRef.current = active;
-    if (active < 0 || !followRef.current || query) return;
-    listRef.current?.querySelector<HTMLElement>("[data-active]")?.scrollIntoView({ block: "center", behavior: "smooth" });
-  }, [active, query]);
+    if (activePos === prevActiveRef.current) return;
+    prevActiveRef.current = activePos;
+    if (activePos < 0 || !followRef.current || query) return;
+    scrollToPos(activePos, "smooth");
+  }, [activePos, query, scrollToPos]);
 
   useEffect(() => {
     checkActiveVisibility();
-  }, [active, segments.length, query, checkActiveVisibility]);
+  }, [activePos, segments.length, query, checkActiveVisibility]);
 
   useEffect(() => {
     const el = listRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(() => checkActiveVisibility());
+    prevWidthRef.current = el.clientWidth;
+    const ro = new ResizeObserver(() => {
+      if (prevWidthRef.current > 0 && Math.abs(el.clientWidth - prevWidthRef.current) > 4) {
+        heightsRef.current.fill(estRowH);
+      }
+      prevWidthRef.current = el.clientWidth;
+      recomputeWindow();
+      checkActiveVisibility();
+    });
     ro.observe(el);
     return () => ro.disconnect();
-  }, [checkActiveVisibility, segments.length]);
-
-  const matches = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return null;
-    const items = trJob?.items;
-    return segments
-      .map((s, i) => (s.text.toLowerCase().includes(q) || items?.[i]?.toLowerCase().includes(q) ? i : -1))
-      .filter((i) => i >= 0);
-  }, [query, segments, trJob?.items]);
+  }, [checkActiveVisibility, recomputeWindow, estRowH, segments.length]);
 
   useEffect(() => {
     setHit(0);
   }, [query]);
 
   useEffect(() => {
-    listRef.current?.querySelector<HTMLElement>("[data-hit]")?.scrollIntoView({ block: "center" });
-  }, [hit, matches]);
+    if (!matches || matches.length === 0) return;
+    scrollToPos(hit, "auto");
+  }, [hit, matches, scrollToPos]);
 
   const trProvider = useMemo(
     () => getTranslateProvider(),
@@ -593,13 +734,7 @@ export function TranscriptPanel({ ep }: { ep: Episode }) {
   const items = trJob?.items ?? [];
   const done = Math.min(total, items.filter((x) => x != null && x !== "").length);
   const running = !!trJob?.running;
-  const wantsZh = !isMostlyChinese(segments);
   const pending = wantsZh && running;
-  const displayMode: "bilingual" | "translation" | "original" = wantsZh
-    ? mode === "off"
-      ? "bilingual"
-      : mode
-    : "original";
   const defaultEngine: "llm" | "google" =
     trEngine === "llm" ? "llm" : trEngine === "google" ? "google" : canLlm ? "llm" : "google";
   const hasDone = total > 0 && done >= total;
@@ -631,7 +766,9 @@ export function TranscriptPanel({ ep }: { ep: Episode }) {
     followRef.current = false;
   };
 
-  const rows = matches ?? segments.map((_, i) => i);
+  const renderStart = isVirtual ? Math.min(win.start, rows.length) : 0;
+  const renderEnd = isVirtual ? Math.min(Math.max(win.end, renderStart), rows.length) : rows.length;
+  const visibleSlice = isVirtual ? rows.slice(renderStart, renderEnd) : rows;
   const showBanner = Boolean(
     asrJob?.running ||
       running ||
@@ -885,32 +1022,41 @@ export function TranscriptPanel({ ep }: { ep: Episode }) {
       )}
 
       <div className="lines-wrap gt-fade-in">
-        <div className="lines notranslate" translate="no" ref={listRef} onScroll={checkActiveVisibility} onWheel={handleWheel}>
-          {rows.map((i, k) => (
-            <Row
-              key={`${segments[i].start}-${i}`}
-              seg={segments[i]}
-              zh={items[i]}
-              active={i === active}
-              mode={displayMode}
-              pending={pending}
-              onSeek={onSeek}
-              query={query}
-              currentHit={!!matches && k === hit}
-            />
-          ))}
+        <div className="lines notranslate" translate="no" ref={listRef} onScroll={handleScroll} onWheel={handleWheel}>
+          {isVirtual && win.topPad > 0 && <div style={{ height: win.topPad }} aria-hidden />}
+          {visibleSlice.map((i, idx) => {
+            const k = renderStart + idx;
+            const cueState = active < 0 ? undefined : i < active ? "past" : i === active ? "active" : "future";
+            const edge = rows.length === 1 ? "only" : k === 0 ? "first" : k === rows.length - 1 ? "last" : undefined;
+            return (
+              <Row
+                key={`${segments[i].start}-${i}`}
+                seg={segments[i]}
+                zh={items[i]}
+                active={i === active}
+                cueState={cueState}
+                edge={edge}
+                mode={displayMode}
+                pending={pending}
+                onSeek={onSeek}
+                query={query}
+                currentHit={!!matches && k === hit}
+                rowPos={k}
+                onMeasure={onMeasure}
+              />
+            );
+          })}
+          {isVirtual && win.bottomPad > 0 && <div style={{ height: win.bottomPad }} aria-hidden />}
         </div>
 
-        {offscreen !== null && active >= 0 && !query && (
+        {offscreen !== null && activePos >= 0 && !query && (
           <button
             type="button"
             className="follow-pill"
             onClick={() => {
               followRef.current = true;
               setOffscreen(null);
-              listRef.current
-                ?.querySelector<HTMLElement>("[data-active]")
-                ?.scrollIntoView({ block: "center", behavior: "smooth" });
+              scrollToPos(activePos, "smooth");
             }}
           >
             {offscreen === "above" ? <ArrowUp size={13} /> : <ArrowDown size={13} />} 回到当前播放句

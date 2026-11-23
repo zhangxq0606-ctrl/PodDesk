@@ -99,6 +99,7 @@ pub async fn chat(
     messages: &[Message],
     max_tokens: u32,
     json_mode: bool,
+    quick: bool,
     cancel: &AtomicBool,
     mut on_delta: impl FnMut(&str),
 ) -> Result<String> {
@@ -108,6 +109,7 @@ pub async fn chat(
         return Err(anyhow!("请先在设置里填写 API Key"));
     }
     let (mut completion_tokens, mut json) = (false, json_mode);
+    let mut think_off = if quick { think_off_param(p) } else { None };
     let mut tries = 0;
     let res = loop {
         tries += 1;
@@ -126,6 +128,9 @@ pub async fn chat(
             if json {
                 body["response_format"] = json!({"type": "json_object"});
             }
+            if let Some((k, v)) = &think_off {
+                body[*k] = v.clone();
+            }
             let mut r = net::client().post(openai_url(&p.base_url)).json(&body);
             if needs_opencode_session(&p.base_url) {
                 r = r.header("x-opencode-session", opencode_session());
@@ -142,7 +147,7 @@ pub async fn chat(
         }
         let body = res.text().await.unwrap_or_default();
         let l = body.to_lowercase();
-        if !anthropic && status.as_u16() == 400 && tries < 3 {
+        if !anthropic && matches!(status.as_u16(), 400 | 422) && tries < 4 {
             if !completion_tokens && l.contains("max_completion_tokens") {
                 completion_tokens = true;
                 continue;
@@ -150,6 +155,12 @@ pub async fn chat(
             if json && (l.contains("response_format") || l.contains("json_object") || l.contains("json mode")) {
                 json = false;
                 continue;
+            }
+            if let Some((k, _)) = think_off {
+                if l.contains(k) || l.contains("unrecognized") || l.contains("unknown") || l.contains("extra") {
+                    think_off = None;
+                    continue;
+                }
             }
         }
         return Err(api_error(status.as_u16(), &body));
@@ -234,6 +245,25 @@ pub async fn chat(
         }
     }
     finish(full, thought || think.saw, cut)
+}
+
+/// Returns the request field that disables or lowers reasoning for quick structured tasks.
+fn think_off_param(p: &Provider) -> Option<(&'static str, Value)> {
+    let base = p.base_url.to_lowercase();
+    let model = p.model.to_lowercase();
+    if base.contains("deepseek.com") || (model.contains("deepseek") && !base.contains("openrouter")) {
+        Some(("thinking", json!({"type": "disabled"})))
+    } else if base.contains("dashscope") || model.starts_with("qwen3") || model.starts_with("qwq") {
+        Some(("enable_thinking", json!(false)))
+    } else if base.contains("bigmodel.cn") || model.starts_with("glm-4.5") || model.starts_with("glm-4.6") || model.starts_with("glm-5") {
+        Some(("thinking", json!({"type": "disabled"})))
+    } else if base.contains("volces.com") || model.starts_with("doubao-seed") {
+        Some(("thinking", json!({"type": "disabled"})))
+    } else if base.contains("api.openai.com") && (model.starts_with('o') || model.starts_with("gpt-5")) {
+        Some(("reasoning_effort", json!("low")))
+    } else {
+        None
+    }
 }
 
 fn text_of(v: &Value) -> Option<String> {
@@ -361,5 +391,25 @@ mod reply_tests {
         assert_eq!(text_of(&json!([{ "type": "text", "text": "你" }, { "type": "image_url" }, { "text": "好" }])).unwrap(), "你好");
         assert!(finish(String::new(), true, false).unwrap_err().to_string().contains("思考"));
         assert_eq!(finish("  \n答".into(), false, false).unwrap(), "答");
+    }
+}
+
+#[cfg(test)]
+mod think_off_tests {
+    use super::*;
+
+    fn p(base: &str, model: &str) -> Provider {
+        Provider { id: "x".into(), protocol: "openai".into(), base_url: base.into(), model: model.into() }
+    }
+
+    #[test]
+    fn picks_the_switch_per_provider() {
+        assert_eq!(think_off_param(&p("https://api.deepseek.com", "deepseek-chat")).unwrap().0, "thinking");
+        assert_eq!(think_off_param(&p("https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen-plus")).unwrap().0, "enable_thinking");
+        assert_eq!(think_off_param(&p("https://open.bigmodel.cn/api/paas/v4", "glm-4.5")).unwrap().0, "thinking");
+        assert_eq!(think_off_param(&p("https://ark.cn-beijing.volces.com/api/v3", "doubao-seed-1.6")).unwrap().0, "thinking");
+        assert_eq!(think_off_param(&p("https://api.openai.com/v1", "gpt-5-mini")).unwrap().1, json!("low"));
+        assert!(think_off_param(&p("https://api.openai.com/v1", "gpt-4.1")).is_none());
+        assert!(think_off_param(&p("https://openrouter.ai/api/v1", "deepseek/deepseek-r1")).is_none());
     }
 }

@@ -177,11 +177,11 @@ interface AppStore {
   settingsSection: SettingsSection;
   settingsTargetId: string | null;
   importOpen: boolean;
-  notice: { ok: boolean; text: string } | null;
+  notice: { ok: boolean; text: string; action?: { label: string; run: () => void } } | null;
 
   set: (patch: Partial<AppStore>) => void;
-  setNotice: (notice: { ok: boolean; text: string } | null) => void;
-  notify: (text: string, ok?: boolean) => void;
+  setNotice: (notice: { ok: boolean; text: string; action?: { label: string; run: () => void } } | null) => void;
+  notify: (text: string, ok?: boolean, action?: { label: string; run: () => void }) => void;
   openSettings: (section?: SettingsSection, targetId?: string | null) => void;
   closeSettings: () => void;
   setImportOpen: (open: boolean) => void;
@@ -297,7 +297,7 @@ export const useStore = create<AppStore>((set, get) => ({
 
   set: (patch) => set(patch),
   setNotice: (notice) => set({ notice }),
-  notify: (text, ok = true) => set({ notice: { ok, text } }),
+  notify: (text, ok = true, action) => set({ notice: { ok, text, action } }),
   openSettings: (section = "asr", targetId = null) =>
     set({ settingsOpen: true, settingsSection: section, settingsTargetId: targetId ?? null }),
   closeSettings: () => set({ settingsOpen: false, settingsTargetId: null }),

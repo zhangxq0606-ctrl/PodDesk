@@ -3,16 +3,139 @@
 use podcast_desk_core::{
     detect_dist_dir, open_browser, standard_data_dir, start_server, RunningServer, ServerConfig, DEFAULT_PORT,
 };
-use std::path::PathBuf;
+use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     webview::NewWindowResponse,
-    AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder, WindowEvent,
+    AppHandle, Manager, PhysicalPosition, Position, RunEvent, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
+    WindowEvent,
 };
 
 struct ServerState(Mutex<Option<RunningServer>>);
+struct LastQuitPrompt(Mutex<Option<Instant>>);
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct WindowState {
+    width: f64,
+    height: f64,
+    x: Option<i32>,
+    y: Option<i32>,
+    maximized: bool,
+}
+
+impl Default for WindowState {
+    fn default() -> Self {
+        Self {
+            width: 1320.0,
+            height: 840.0,
+            x: None,
+            y: None,
+            maximized: false,
+        }
+    }
+}
+
+struct WindowPersist {
+    path: PathBuf,
+    state: WindowState,
+    last_flush: Instant,
+}
+
+struct WindowPersistState(Mutex<Option<WindowPersist>>);
+
+fn load_window_state(path: &Path) -> Option<WindowState> {
+    let raw = std::fs::read_to_string(path).ok()?;
+    let st: WindowState = serde_json::from_str(&raw).ok()?;
+    if !st.width.is_finite() || !st.height.is_finite() || st.width < 600.0 || st.height < 420.0 {
+        return None;
+    }
+    Some(st)
+}
+
+fn save_window_state(path: &Path, st: &WindowState) {
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    if let Ok(json) = serde_json::to_string_pretty(st) {
+        let _ = std::fs::write(path, json);
+    }
+}
+
+fn position_visible_on_monitors(app: &AppHandle, x: i32, y: i32, width: f64, height: f64) -> bool {
+    let Ok(monitors) = app.available_monitors() else {
+        return false;
+    };
+    let w = (width.max(320.0)) as i32;
+    let h = (height.max(240.0)) as i32;
+    monitors.iter().any(|m| {
+        let area = m.work_area();
+        let mx0 = area.position.x;
+        let my0 = area.position.y;
+        let mx1 = mx0 + area.size.width as i32;
+        let my1 = my0 + area.size.height as i32;
+        let overlap_x = (x + w).min(mx1) - x.max(mx0);
+        let overlap_y = (y + h).min(my1) - y.max(my0);
+        overlap_x >= 120 && overlap_y >= 80
+    })
+}
+
+fn capture_window_state(win: &WebviewWindow, prev: &mut WindowState) {
+    let maximized = win.is_maximized().unwrap_or(false);
+    let minimized = win.is_minimized().unwrap_or(false);
+    prev.maximized = maximized;
+    if maximized || minimized {
+        return;
+    }
+    let scale = win.scale_factor().unwrap_or(1.0).max(0.5);
+    if let Ok(size) = win.inner_size() {
+        let logical = size.to_logical::<f64>(scale);
+        if logical.width >= 600.0 && logical.height >= 420.0 {
+            prev.width = logical.width.round();
+            prev.height = logical.height.round();
+        }
+    }
+    if let Ok(pos) = win.outer_position() {
+        if pos.x > -30000 && pos.y > -30000 {
+            prev.x = Some(pos.x);
+            prev.y = Some(pos.y);
+        }
+    }
+}
+
+fn update_window_persist(app: &AppHandle, win: &WebviewWindow, force_flush: bool) {
+    let Some(holder) = app.try_state::<WindowPersistState>() else { return };
+    let mut guard = holder.0.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(persist) = guard.as_mut() else { return };
+    capture_window_state(win, &mut persist.state);
+    if force_flush || persist.last_flush.elapsed() >= Duration::from_millis(800) {
+        save_window_state(&persist.path, &persist.state);
+        persist.last_flush = Instant::now();
+    }
+}
+
+fn flush_window_persist(app: &AppHandle) {
+    if let Some(win) = app.get_webview_window("main") {
+        update_window_persist(app, &win, true);
+    } else if let Some(holder) = app.try_state::<WindowPersistState>() {
+        if let Some(persist) = holder.0.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+            save_window_state(&persist.path, &persist.state);
+        }
+    }
+}
+
+fn shutdown_and_exit(app: &AppHandle) {
+    flush_window_persist(app);
+    if let Some(st) = app.try_state::<ServerState>() {
+        if let Some(mut srv) = st.0.lock().unwrap_or_else(|e| e.into_inner()).take() {
+            srv.shutdown();
+        }
+    }
+    app.exit(0);
+}
 
 fn focus_main_window(app: &AppHandle) {
     if let Some(win) = app.get_webview_window("main") {
@@ -59,7 +182,7 @@ fn prepend_exe_dir_to_path() {
     }
 }
 
-fn open_folder(path: &std::path::Path) {
+fn open_folder(path: &Path) {
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
@@ -99,12 +222,27 @@ fn build_tray(app: &AppHandle, data_dir: PathBuf) -> tauri::Result<()> {
             "show" => focus_main_window(app),
             "data_dir" => open_folder(&dd),
             "quit" => {
-                if let Some(st) = app.try_state::<ServerState>() {
-                    if let Some(mut srv) = st.0.lock().unwrap().take() {
-                        srv.shutdown();
+                let active_jobs = app
+                    .try_state::<ServerState>()
+                    .and_then(|st| st.0.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map(|s| s.active_jobs()))
+                    .unwrap_or(0);
+                if active_jobs > 0 {
+                    let recently_prompted = app
+                        .try_state::<LastQuitPrompt>()
+                        .is_some_and(|p| p.0.lock().unwrap_or_else(|e| e.into_inner()).is_some_and(|t| t.elapsed().as_secs() < 6));
+                    if !recently_prompted {
+                        if let Some(p) = app.try_state::<LastQuitPrompt>() {
+                            *p.0.lock().unwrap_or_else(|e| e.into_inner()) = Some(Instant::now());
+                        }
+                        focus_main_window(app);
+                        if let Some(win) = app.get_webview_window("main") {
+                            if win.eval("window.__poddeskRequestQuit && window.__poddeskRequestQuit()").is_ok() {
+                                return;
+                            }
+                        }
                     }
                 }
-                app.exit(0);
+                shutdown_and_exit(app);
             }
             _ => {}
         })
@@ -131,6 +269,8 @@ fn main() {
             focus_main_window(app);
         }))
         .manage(ServerState(Mutex::new(None)))
+        .manage(LastQuitPrompt(Mutex::new(None)))
+        .manage(WindowPersistState(Mutex::new(None)))
         .setup(|app| {
             let data_dir = std::env::var_os("PODCAST_DESK_DATA")
                 .map(PathBuf::from)
@@ -141,20 +281,46 @@ fn main() {
                 None
             };
 
+            let (quit_tx, quit_rx) = tokio::sync::oneshot::channel::<()>();
             let server = tauri::async_runtime::block_on(start_server(ServerConfig {
                 port: DEFAULT_PORT,
                 data_dir: data_dir.clone(),
                 dist_dir,
+                quit_tx: Some(quit_tx),
             }))?;
 
             let url: url::Url = server.url.parse()?;
-            *app.state::<ServerState>().0.lock().unwrap() = Some(server);
+            *app.state::<ServerState>().0.lock().unwrap_or_else(|e| e.into_inner()) = Some(server);
 
-            let win = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
+            let quit_app = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                if quit_rx.await.is_ok() {
+                    shutdown_and_exit(&quit_app);
+                }
+            });
+
+            let win_state_path = data_dir.join("window-state.json");
+            let saved_win = load_window_state(&win_state_path).unwrap_or_default();
+            let width = saved_win.width.clamp(720.0, 3840.0);
+            let height = saved_win.height.clamp(560.0, 2160.0);
+            let valid_pos = match (saved_win.x, saved_win.y) {
+                (Some(x), Some(y)) if position_visible_on_monitors(app.handle(), x, y, width, height) => Some((x, y)),
+                _ => None,
+            };
+
+            *app.state::<WindowPersistState>()
+                .0
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = Some(WindowPersist {
+                path: win_state_path,
+                state: saved_win.clone(),
+                last_flush: Instant::now(),
+            });
+
+            let mut win_builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
                 .title("PodDesk")
-                .inner_size(1320.0, 840.0)
-                .min_inner_size(960.0, 640.0)
-                .center()
+                .inner_size(width, height)
+                .min_inner_size(720.0, 560.0)
                 .on_navigation(|nav_url| {
                     if is_allowed_in_app(nav_url) {
                         true
@@ -170,15 +336,31 @@ fn main() {
                         open_browser(new_url.as_str());
                     }
                     NewWindowResponse::Deny
-                })
-                .build()?;
+                });
+            if valid_pos.is_none() {
+                win_builder = win_builder.center();
+            }
+            let win = win_builder.build()?;
 
+            if let Some((x, y)) = valid_pos {
+                let _ = win.set_position(Position::Physical(PhysicalPosition::new(x, y)));
+            }
+            if saved_win.maximized {
+                let _ = win.maximize();
+            }
+
+            let app_for_events = app.handle().clone();
             let win_clone = win.clone();
-            win.on_window_event(move |event| {
-                if let WindowEvent::CloseRequested { api, .. } = event {
+            win.on_window_event(move |event| match event {
+                WindowEvent::Moved(_) | WindowEvent::Resized(_) => {
+                    update_window_persist(&app_for_events, &win_clone, false);
+                }
+                WindowEvent::CloseRequested { api, .. } => {
+                    update_window_persist(&app_for_events, &win_clone, true);
                     api.prevent_close();
                     let _ = win_clone.hide();
                 }
+                _ => {}
             });
 
             build_tray(app.handle(), data_dir)?;
@@ -189,8 +371,9 @@ fn main() {
 
     app.run(|app_handle, event| {
         if let RunEvent::Exit = event {
+            flush_window_persist(app_handle);
             if let Some(st) = app_handle.try_state::<ServerState>() {
-                if let Some(mut srv) = st.0.lock().unwrap().take() {
+                if let Some(mut srv) = st.0.lock().unwrap_or_else(|e| e.into_inner()).take() {
                     srv.shutdown();
                 }
             }
