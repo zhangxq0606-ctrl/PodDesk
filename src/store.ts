@@ -17,6 +17,7 @@ import {
   type DarkThemeId,
   type LightThemeId,
 } from "./lib/themes";
+import { upsertRecentTop } from "./lib/recent";
 
 export type View =
   | { kind: "home" }
@@ -46,6 +47,7 @@ export interface Prefs {
   darkTheme: DarkThemeId;
   audioNextLine: boolean;
   audioStageSub: boolean;
+  autoTranslateTitles: boolean;
   playbackRate: number;
   volume: number;
   muted: boolean;
@@ -70,6 +72,7 @@ const DEFAULT_PREFS: Prefs = {
   darkTheme: DEFAULT_DARK_THEME,
   audioNextLine: true,
   audioStageSub: true,
+  autoTranslateTitles: true,
   playbackRate: 1,
   volume: 1,
   muted: false,
@@ -209,7 +212,8 @@ interface AppStore {
   deleteShow: (id: string) => Promise<void>;
   deleteEpisode: (id: string) => Promise<void>;
   toggleEpisodeCompleted: (ep: Episode, next?: boolean) => Promise<void>;
-  syncProgressLocal: (id: string, seconds: number, completed?: boolean) => void;
+  touchEpisodeLocal: (ep: Episode) => void;
+  syncProgressLocal: (id: string, seconds: number, completed?: boolean, epHint?: Episode) => void;
   importText: (opts: { title?: string; text: string; format?: "auto" | "srt" | "vtt" | "txt" }) => Promise<void>;
   importMedia: (file: File, title?: string) => Promise<void>;
   markHasTranscript: (episodeId: string) => void;
@@ -306,15 +310,35 @@ export const useStore = create<AppStore>((set, get) => ({
   go: (v) => {
     const cur = get().view;
     if (sameView(cur, v)) return;
-    set((s) => ({
+    const s = get();
+    if (s.view.kind === "episode" && s.current && s.time > 0) {
+      const playingEp = s.current;
+      const changed = Math.abs(s.time - (playingEp.progress ?? 0)) >= 1;
+      const missingFromRecent = s.time > 5 && !s.recentEpisodes.some((e) => e.id === playingEp.id && e.progress > 5);
+      if (changed || missingFromRecent) {
+        s.syncProgressLocal(playingEp.id, s.time, undefined, playingEp);
+        void api.setProgress(playingEp.id, s.time).catch(() => {});
+      }
+    }
+    set((prev) => ({
       view: v,
-      history: [...s.history.slice(-30), cur],
+      history: [...prev.history.slice(-30), cur],
     }));
   },
 
   back: () => {
     const hist = get().history;
     if (!hist.length) return;
+    const s = get();
+    if (s.view.kind === "episode" && s.current && s.time > 0) {
+      const playingEp = s.current;
+      const changed = Math.abs(s.time - (playingEp.progress ?? 0)) >= 1;
+      const missingFromRecent = s.time > 5 && !s.recentEpisodes.some((e) => e.id === playingEp.id && e.progress > 5);
+      if (changed || missingFromRecent) {
+        s.syncProgressLocal(playingEp.id, s.time, undefined, playingEp);
+        void api.setProgress(playingEp.id, s.time).catch(() => {});
+      }
+    }
     const prev = hist[hist.length - 1];
     set({ view: prev, history: hist.slice(0, -1) });
   },
@@ -401,40 +425,18 @@ export const useStore = create<AppStore>((set, get) => ({
     const cur = s.current;
     const savedAt = cur && s.time > 0 ? Math.floor(s.time) : null;
     if (cur && savedAt && savedAt > 0) {
+      s.syncProgressLocal(cur.id, savedAt, undefined, cur);
       void api.setProgress(cur.id, savedAt).catch(() => {});
     }
-    set((prev) => {
-      if (!cur || !savedAt) {
-        return {
-          current: null,
-          playing: false,
-          time: 0,
-          length: 0,
-          loadingSince: null,
-          player: null,
-          playWhenReady: null,
-          seekWhenReady: null,
-        };
-      }
-      const patchList = (list: Episode[]) =>
-        list.map((e) => (e.id === cur.id ? { ...e, progress: savedAt } : e));
-      const nextShowEps: Record<string, Episode[]> = {};
-      for (const [k, list] of Object.entries(prev.showEpisodes)) nextShowEps[k] = patchList(list);
-      const cached = prev.episodeCache[cur.id];
-      return {
-        recentEpisodes: patchList(prev.recentEpisodes),
-        latestEpisodes: patchList(prev.latestEpisodes),
-        showEpisodes: nextShowEps,
-        episodeCache: cached ? { ...prev.episodeCache, [cur.id]: { ...cached, progress: savedAt } } : prev.episodeCache,
-        current: null,
-        playing: false,
-        time: 0,
-        length: 0,
-        loadingSince: null,
-        player: null,
-        playWhenReady: null,
-        seekWhenReady: null,
-      };
+    set({
+      current: null,
+      playing: false,
+      time: 0,
+      length: 0,
+      loadingSince: null,
+      player: null,
+      playWhenReady: null,
+      seekWhenReady: null,
     });
   },
 
@@ -706,27 +708,55 @@ export const useStore = create<AppStore>((set, get) => ({
     );
   },
 
-  syncProgressLocal: (id, seconds, completed) => {
+  touchEpisodeLocal: (ep) => {
+    set((s) => {
+      const touched: Episode = { ...ep, touchedAt: Math.max(ep.touchedAt ?? 0, Date.now()) };
+      const qualifies =
+        touched.progress > 0 ||
+        touched.hasTranscript ||
+        touched.showId === "single" ||
+        s.recentEpisodes.some((e) => e.id === touched.id);
+      return {
+        episodeCache: { ...s.episodeCache, [touched.id]: touched },
+        ...(qualifies ? { recentEpisodes: upsertRecentTop(s.recentEpisodes, touched) } : {}),
+      };
+    });
+  },
+
+  syncProgressLocal: (id, seconds, completed, epHint) => {
     const prevDone = !!(get().episodeCache[id]?.completed || (get().current?.id === id && get().current?.completed));
     const newlyCompleted = completed === true && !prevDone;
+    const nextSec = Math.max(0, seconds);
+    const now = Date.now();
     set((s) => {
       const patch = (e: Episode): Episode =>
         e.id === id
           ? {
               ...e,
-              progress: Math.max(e.progress, seconds),
+              progress: nextSec,
+              touchedAt: now,
               ...(completed !== undefined ? { completed } : {}),
             }
           : e;
       const nextShowEps: Record<string, Episode[]> = {};
       for (const [k, list] of Object.entries(s.showEpisodes)) nextShowEps[k] = list.map(patch);
-      const cached = s.episodeCache[id];
+      const base =
+        s.episodeCache[id] ??
+        s.recentEpisodes.find((e) => e.id === id) ??
+        (s.current?.id === id ? s.current : undefined) ??
+        epHint ??
+        s.latestEpisodes.find((e) => e.id === id) ??
+        Object.values(s.showEpisodes)
+          .flat()
+          .find((e) => e.id === id);
+      const updated = base ? patch(base) : undefined;
+      const promote = updated && (nextSec > 0 || completed !== undefined || s.recentEpisodes.some((e) => e.id === id));
       return {
-        recentEpisodes: s.recentEpisodes.map(patch),
+        recentEpisodes: promote && updated ? upsertRecentTop(s.recentEpisodes, updated) : s.recentEpisodes.map(patch),
         latestEpisodes: s.latestEpisodes.map(patch),
         showEpisodes: nextShowEps,
         current: s.current?.id === id ? patch(s.current) : s.current,
-        episodeCache: cached ? { ...s.episodeCache, [id]: patch(cached) } : s.episodeCache,
+        episodeCache: updated ? { ...s.episodeCache, [id]: updated } : s.episodeCache,
       };
     });
     if (newlyCompleted) {

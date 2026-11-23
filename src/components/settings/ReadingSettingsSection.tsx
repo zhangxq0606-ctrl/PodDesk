@@ -14,9 +14,10 @@ const SHORTCUTS: [string, string][] = [
 ];
 
 export function ReadingSettingsSection() {
-  const { audioNextLine, savePrefs } = useStore(
+  const { audioNextLine, autoTranslateTitles, savePrefs } = useStore(
     useShallow((s) => ({
       audioNextLine: s.prefs.audioNextLine,
+      autoTranslateTitles: s.prefs.autoTranslateTitles,
       savePrefs: s.savePrefs,
     })),
   );
@@ -32,6 +33,14 @@ export function ReadingSettingsSection() {
             onChange={(e) => savePrefs({ audioNextLine: e.target.checked })}
           />
           <span>纯音频舞台提前预告下一句字幕</span>
+        </label>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={autoTranslateTitles}
+            onChange={(e) => savePrefs({ autoTranslateTitles: e.target.checked })}
+          />
+          <span>自动翻译外文标题与频道简介（双语对照，结果本地缓存）</span>
         </label>
         <p className="muted small">
           主题风格与字幕/问答字号已移至左侧「外观」页签统一调整。

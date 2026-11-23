@@ -390,22 +390,22 @@
 }
 
 .sub-s .zh {
-  font-size: 13.5px;
+  font-size: 14.5px;
 }
 .sub-s .orig {
-  font-size: 12.5px;
-}
-.sub-m .zh {
-  font-size: 15px;
-}
-.sub-m .orig {
   font-size: 13.5px;
 }
+.sub-m .zh {
+  font-size: 16px;
+}
+.sub-m .orig {
+  font-size: 15px;
+}
 .sub-l .zh {
-  font-size: 17px;
+  font-size: 18px;
 }
 .sub-l .orig {
-  font-size: 15px;
+  font-size: 16.5px;
 }
 
 .line.active .zh {

@@ -488,6 +488,19 @@
   overflow: hidden;
 }
 
+.ep-title-orig {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.title-orig-sub {
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--muted);
+  margin-top: -2px;
+}
+
 .inline-eq {
   flex: none;
 }

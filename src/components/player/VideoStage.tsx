@@ -67,7 +67,7 @@ export function LocalVideoStage({ ep, src, onFail }: { ep: Episode; src: string;
     };
     useStore.getState().offerPlayer(handle);
     return () => {
-      if (el.currentTime > 0) void api.setProgress(ep.id, el.currentTime);
+      if (el.currentTime > 0) persistProgress(ep, el.currentTime);
       useStore.getState().withdrawPlayer(handle);
     };
   }, [ep.id, src]);

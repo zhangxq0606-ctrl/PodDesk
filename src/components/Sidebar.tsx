@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { memo, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Check,
   ChevronLeft,
@@ -21,11 +21,12 @@ import {
   X,
 } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
-import { api, type SearchResult } from "../lib/api";
+import { api, type SearchResult, type Show } from "../lib/api";
 import { clock } from "../lib/format";
 import { useJobs } from "../lib/jobs";
 import { triggerSidebarAnim, useLayout } from "../lib/layout";
 import { getDarkThemeMeta, getLightThemeMeta, resolveEffectiveMode } from "../lib/themes";
+import { useShowTitleZh, useTitleZh } from "../lib/zh";
 import { useStore, type View } from "../store";
 import { BrandMark } from "./Illustrations";
 import { isVideoMediaUrl } from "./Players";
@@ -74,6 +75,33 @@ function TaskChip() {
   }
   return null;
 }
+
+const SidebarShowItem = memo(function SidebarShowItem({
+  s,
+  active,
+  onSelect,
+}: {
+  s: Show;
+  active: boolean;
+  onSelect: () => void;
+}) {
+  const zh = useShowTitleZh(s.title);
+  return (
+    <button type="button" className={`show-item ${active ? "on" : ""}`} onClick={onSelect} title={s.title}>
+      <span className="show-cover">
+        {s.cover ? (
+          <img src={s.cover} alt="" loading="lazy" />
+        ) : (
+          <span className="cover-fallback">{s.title.slice(0, 1).toUpperCase()}</span>
+        )}
+      </span>
+      <span className="show-names">
+        <span className="show-title">{zh ?? s.title}</span>
+      </span>
+      {s.unplayed > 0 && <span className="fresh-dot" title="近 7 天有新更新" aria-label="近 7 天有新更新" />}
+    </button>
+  );
+});
 
 export function Sidebar({ isDrawer }: { isDrawer: boolean }) {
   const { shows, view, go, openSettings, setImportOpen } = useStore(
@@ -165,28 +193,15 @@ export function Sidebar({ isDrawer }: { isDrawer: boolean }) {
 
       <div className="show-list">
         {shows.map((s) => (
-          <button
+          <SidebarShowItem
             key={s.id}
-            type="button"
-            className={`show-item ${isActiveView({ kind: "show", id: s.id }) ? "on" : ""}`}
-            onClick={() => {
+            s={s}
+            active={isActiveView({ kind: "show", id: s.id })}
+            onSelect={() => {
               closeDrawer();
               go({ kind: "show", id: s.id });
             }}
-            title={s.title}
-          >
-            <span className="show-cover">
-              {s.cover ? (
-                <img src={s.cover} alt="" loading="lazy" />
-              ) : (
-                <span className="cover-fallback">{s.title.slice(0, 1).toUpperCase()}</span>
-              )}
-            </span>
-            <span className="show-names">
-              <span className="show-title">{s.title}</span>
-            </span>
-            {s.unplayed > 0 && <span className="fresh-dot" title="近 7 天有新更新" aria-label="近 7 天有新更新" />}
-          </button>
+          />
         ))}
         {!shows.length && <p className="muted small side-empty">暂无订阅，可在顶部搜索添加</p>}
       </div>
@@ -517,6 +532,8 @@ export function MiniPlayer() {
     })),
   );
   const { sideOpen, sidebar } = useLayout(useShallow((l) => ({ sideOpen: l.sideOpen, sidebar: l.sidebar })));
+  const titleZh = useTitleZh(current?.title);
+  const showZh = useShowTitleZh(current?.showTitle);
   const [backTick, setBackTick] = useState(0);
   const [fwdTick, setFwdTick] = useState(0);
 
@@ -526,7 +543,8 @@ export function MiniPlayer() {
 
   const offsetLeft = view.kind !== "episode" && sideOpen ? sidebar : 0;
   const pct = length > 0 ? Math.min(100, (time / length) * 100) : 0;
-  const showLabel = current.showTitle && current.showId !== "single" ? `${current.showTitle} · ` : "";
+  const shownShow = showZh ?? current.showTitle;
+  const showLabel = shownShow && current.showId !== "single" ? `${shownShow} · ` : "";
   const timeLabel = `${clock(time)}${length > 0 ? ` / ${clock(length)}` : ""}`;
 
   return (
@@ -558,7 +576,7 @@ export function MiniPlayer() {
           )}
         </span>
         <span className="mini-text">
-          <span className="ep-name clamp1">{current.title}</span>
+          <span className="ep-name clamp1">{titleZh ?? current.title}</span>
           <span className="meta-line clamp1">{`${showLabel}${timeLabel}`}</span>
         </span>
       </div>

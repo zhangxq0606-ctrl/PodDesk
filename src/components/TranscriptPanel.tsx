@@ -519,7 +519,7 @@ export function TranscriptPanel({ ep }: { ep: Episode }) {
     [active, matches],
   );
   const isVirtual = rows.length >= VIRTUAL_THRESHOLD;
-  const estRowH = displayMode === "bilingual" ? 72 : 48;
+  const estRowH = displayMode === "bilingual" ? 80 : 54;
 
   const heightsRef = useRef<Float32Array>(new Float32Array(0));
   if (heightsRef.current.length !== rows.length) {

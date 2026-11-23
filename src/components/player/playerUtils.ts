@@ -120,10 +120,14 @@ export function resetSavedProgress(seconds: number): void {
 }
 
 export function persistProgress(ep: Episode, seconds: number): void {
+  lastSavedProgress = seconds;
+  useStore.getState().syncProgressLocal(ep.id, seconds, undefined, ep);
   void api
     .setProgress(ep.id, seconds)
     .then((res) => {
-      useStore.getState().syncProgressLocal(ep.id, seconds, res.completed);
+      if (res.completed !== undefined) {
+        useStore.getState().syncProgressLocal(ep.id, seconds, res.completed, ep);
+      }
     })
     .catch(() => {});
 }
@@ -132,8 +136,7 @@ export function trackTime(ep: Episode, time: number, length?: number): void {
   const s = useStore.getState();
   if (s.current?.id !== ep.id) return;
   s.set({ time, ...(length && length > 0 ? { length } : {}) });
-  if (Math.abs(time - lastSavedProgress) >= 10) {
-    lastSavedProgress = time;
+  if (Math.abs(time - lastSavedProgress) >= 10 || (time > 5 && lastSavedProgress <= 5)) {
     persistProgress(ep, time);
   }
 }

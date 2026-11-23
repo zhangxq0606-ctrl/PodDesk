@@ -62,6 +62,12 @@ last_verified: 2026-11-23
 
 # 最近完成
 
+- **2026-11-23（试用反馈三项修复：继续观看卡实时同步、外文标题自动翻译、字幕放大下移）**：
+  - 进度同步（[recent.ts](src/lib/recent.ts)、[store.ts](src/store.ts)、[playerUtils.ts](src/components/player/playerUtils.ts)、[Lists.tsx](src/components/Lists.tsx)、[VideoStage.tsx](src/components/player/VideoStage.tsx)、[Controls.tsx](src/components/player/Controls.tsx)）：播放进度写入时将该集置顶到「最近」、回拖进度不再被 `Math.max` 吞掉、离开单集页/关闭迷你播放器/视频卸载立即同步，首页「继续观看/收听」首卡跟随当前播放（仅该卡订阅秒级进度）。
+  - 外文标题翻译（[zh.ts](src/lib/zh.ts) + 单集页/列表/首卡/频道页/侧栏/迷你播放器）：直连谷歌批量懒翻译、复用后端 `tr_cache` 落盘，中文主标题 + 原文副标，已是中文或纯人名音译自动跳过，「阅读」设置页可关。
+  - 字幕：画内字幕与音频提词放大（英文约 +25%）并联动「小/标准/大」，画内字幕位置下移，右侧字幕列表同步放大。
+  - 验证：`npm run test` 7 文件 / 27 用例全过，`npm run typecheck`、`npm run build` 通过，`LAB_HITS=0`，`npm run tauri:build` 产出 `PodDesk_0.1.0_x64-setup.exe`（6.05 MiB），`validate_project_scaffold.py` PASS；界面观感与翻译实际出词未做图形实测。
+
 - **2026-11-23（第二关：UI 质感重塑、8 套三轴主题体系与微动效收口）**：
   - 主题引擎与 8 套核心调色板（[themeEngine.ts](src/lib/themeEngine.ts)、[themes.ts](src/lib/themes.ts)、[themes.css](src/themes.css)、[index.html](index.html)、[themes.test.ts](src/lib/__tests__/themes.test.ts)）：落地 OKLCH 自动求参引擎与 26 语义 Token 三轴解耦主题系统（默认 `stone-proof` 素石校对 × `graphite-desk` 石墨仪器），补齐「素石校对 / 亚麻书页 / 阳极银台 / 暖宣纸」4 浅与「石墨仪器 / 暗室黑曜 / 冷灰控台 / 净炭书房」4 纯中性深主题、历史 ID 平滑迁移及 Vitest WCAG 2.1 对比度自动化门禁。
   - 编辑部排版、微工艺与克制微动效（`src/styles/`、[Controls.tsx](src/components/player/Controls.tsx)、[AudioStage.tsx](src/components/player/AudioStage.tsx)、[MediaStage.tsx](src/components/player/MediaStage.tsx)、[TranscriptPanel.tsx](src/components/TranscriptPanel.tsx)、[GuidePanel.tsx](src/components/chat/GuidePanel.tsx)、[ChatPanel.tsx](src/components/chat/ChatPanel.tsx)、[CopyMenu.tsx](src/components/chat/CopyMenu.tsx)、[Sidebar.tsx](src/components/Sidebar.tsx)）：加入纸感底噪、外科手术式 4 处衬线锚点与深色光学减重、字幕/导读统一三态圆点时间轴、滚屏边缘多段缓动渐隐、自定义 `::selection`、进度条实时时间与章节预览气泡、浮层原生位置轻浮入场、±10/15s 棘轮回馈、「内容精炼」网格折叠、步进流光与呼吸书写光标、设置页材质对齐，以及 `<=1100px`/`<=900px` 窄屏响应式修正。

@@ -6,7 +6,7 @@ import type { Episode } from "../../lib/api";
 import { clock } from "../../lib/format";
 import { runTranslate, stopTranslate, useJobs } from "../../lib/jobs";
 import { useStore } from "../../store";
-import { cycleRate, isVideoMediaUrl, toggleMute } from "./playerUtils";
+import { cycleRate, isVideoMediaUrl, persistProgress, toggleMute } from "./playerUtils";
 
 function SeekBack10Icon() {
   return (
@@ -525,12 +525,14 @@ export function Controls({ ep }: { ep: Episode }) {
           onPointerUp={() => {
             if (drag != null) {
               player?.seek(drag);
+              persistProgress(ep, drag);
               setDrag(null);
             }
           }}
           onKeyUp={() => {
             if (drag != null) {
               player?.seek(drag);
+              persistProgress(ep, drag);
               setDrag(null);
             }
           }}

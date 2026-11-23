@@ -21,6 +21,8 @@ import { readScroll, saveScroll } from "../lib/cache";
 import { ask } from "../lib/confirm";
 import { clock, formatDate, formatDuration, groupLabel, notesText } from "../lib/format";
 import { clearEpisodeJobs } from "../lib/jobs";
+import { isEpisodeDone, pickContinueHero } from "../lib/recent";
+import { getCachedTitleZh, useShowTitleZh, useTitleZh } from "../lib/zh";
 import { useStore } from "../store";
 import { DeskArt, EqBars, SkeletonFeed } from "./Illustrations";
 import { MonthFilter, useMonthFilter } from "./MonthFilter";
@@ -28,10 +30,6 @@ import { MonthFilter, useMonthFilter } from "./MonthFilter";
 function cleanCoverUrl(ep: Episode): string | undefined {
   if (!ep.cover) return ep.videoId ? `https://i.ytimg.com/vi/${ep.videoId}/mqdefault.jpg` : undefined;
   return ep.cover.replace(/\/hqdefault\.jpg(\?|$)/i, "/mqdefault.jpg$1");
-}
-
-function isDone(ep: Episode): boolean {
-  return !!(ep.completed || (ep.duration && ep.progress >= ep.duration * 0.97));
 }
 
 const HOME_TAB_KEY = "podcast-desk-home-tab";
@@ -60,7 +58,9 @@ const EpisodeRow = memo(function EpisodeRow({
   const openEpisode = useStore((s) => s.openEpisode);
   const toggleEpisodeCompleted = useStore((s) => s.toggleEpisodeCompleted);
   const isPlaying = useStore((s) => s.playing && s.current?.id === ep.id);
-  const done = isDone(ep);
+  const titleZh = useTitleZh(ep.title);
+  const showTitleZh = useShowTitleZh(showShow ? ep.showTitle : undefined);
+  const done = isEpisodeDone(ep);
   const pct = done && ep.duration ? 100 : ep.duration && ep.progress > 5 ? Math.min(100, (ep.progress / ep.duration) * 100) : 0;
   const remainMins = !done && ep.duration && pct > 0 ? Math.max(1, Math.round((ep.duration - ep.progress) / 60)) : 0;
   const coverSrc = cleanCoverUrl(ep);
@@ -111,8 +111,9 @@ const EpisodeRow = memo(function EpisodeRow({
       <div className="ep-body-col">
         <p className="ep-kicker">
           {showShow && (
-            <span className="show-name">
-              {ep.showTitle || (ep.videoId ? "YouTube 单集" : ep.audioUrl ? "本地/单集音频" : "导入文稿")}
+            <span className="show-name" title={showTitleZh && ep.showTitle ? ep.showTitle : undefined}>
+              {showTitleZh ??
+                (ep.showTitle || (ep.videoId ? "YouTube 单集" : ep.audioUrl ? "本地/单集音频" : "导入文稿"))}
             </span>
           )}
           {dateMs ? <span>{formatDate(dateMs)}</span> : null}
@@ -120,8 +121,9 @@ const EpisodeRow = memo(function EpisodeRow({
         </p>
         <p className="ep-title2">
           {isPlaying && <EqBars className="inline-eq" />}
-          <span>{ep.title}</span>
+          <span>{titleZh ?? ep.title}</span>
         </p>
+        {titleZh && <p className="ep-title-orig clamp1">{ep.title}</p>}
         {(ep.hasTranscript || ep.transcriptUrl || ep.videoId || remainMins > 0 || done) && (
           <p className="ep-tags">
             {ep.hasTranscript ? (
@@ -170,6 +172,8 @@ const EpisodeRow = memo(function EpisodeRow({
 
 function ShowTile({ show }: { show: Show }) {
   const go = useStore((s) => s.go);
+  const titleZh = useShowTitleZh(show.title);
+  const subText = titleZh ? show.title : show.author && show.author !== show.title ? show.author : null;
   return (
     <div
       className="show-tile"
@@ -187,8 +191,8 @@ function ShowTile({ show }: { show: Show }) {
           <div className="cover-fallback">{show.title.slice(0, 1).toUpperCase()}</div>
         )}
       </div>
-      <p className="tile-name clamp1">{show.title}</p>
-      {show.author && show.author !== show.title && <p className="tile-sub clamp1">{show.author}</p>}
+      <p className="tile-name clamp1">{titleZh ?? show.title}</p>
+      {subText && <p className="tile-sub clamp1">{subText}</p>}
     </div>
   );
 }
@@ -241,11 +245,15 @@ function ContinueHero({ ep }: { ep: Episode }) {
   const { openEpisode, load, playSoon } = useStore(
     useShallow((s) => ({ openEpisode: s.openEpisode, load: s.load, playSoon: s.playSoon })),
   );
+  const liveSec = useStore((s) => (s.current?.id === ep.id ? Math.floor(s.time) : null));
+  const titleZh = useTitleZh(ep.title);
+  const showTitleZh = useShowTitleZh(ep.showTitle);
+  const progress = liveSec != null && liveSec > 0 ? liveSec : ep.progress;
   const coverSrc = cleanCoverUrl(ep);
-  const pct = ep.duration ? Math.min(100, (ep.progress / ep.duration) * 100) : 0;
-  const remainMins = ep.duration ? Math.max(1, Math.round((ep.duration - ep.progress) / 60)) : 0;
+  const pct = ep.duration ? Math.min(100, (progress / ep.duration) * 100) : 0;
+  const remainMins = ep.duration ? Math.max(1, Math.round((ep.duration - progress) / 60)) : 0;
   const resume = () => {
-    load(ep);
+    load({ ...ep, progress });
     openEpisode(ep);
     playSoon(ep.id);
   };
@@ -282,9 +290,12 @@ function ContinueHero({ ep }: { ep: Episode }) {
       <div className="hero-meta">
         <p className="meta-line">
           <span>{ep.videoId ? "继续观看" : "继续收听"}</span>
-          {ep.showTitle && ep.showId !== "single" ? <span>· {ep.showTitle}</span> : null}
+          {ep.showTitle && ep.showId !== "single" ? (
+            <span title={showTitleZh ? ep.showTitle : undefined}>· {showTitleZh ?? ep.showTitle}</span>
+          ) : null}
         </p>
-        <p className="hero-title">{ep.title}</p>
+        <p className="hero-title">{titleZh ?? ep.title}</p>
+        {titleZh && <p className="title-orig-sub clamp1">{ep.title}</p>}
         <div className="hero-foot">
           <span className="btn sm primary hero-play" aria-hidden>
             <Play size={13} fill="currentColor" />
@@ -314,7 +325,7 @@ function pickUpdates(
   days: 7 | 30,
   onlyUnwatched: boolean,
 ): { items: Episode[]; fallback: boolean } {
-  const base = onlyUnwatched ? episodes.filter((e) => !isDone(e)) : episodes;
+  const base = onlyUnwatched ? episodes.filter((e) => !isEpisodeDone(e)) : episodes;
   const cutoff = Date.now() - days * 86_400_000;
   const inWindow = base.filter((e) => e.published && e.published >= cutoff);
   if (inWindow.length > 0) {
@@ -331,6 +342,7 @@ export function HomeView() {
     shows,
     recentEpisodes,
     latestEpisodes,
+    current,
     refreshingAll,
     refreshAllShows,
     setImportOpen,
@@ -340,6 +352,7 @@ export function HomeView() {
       shows: s.shows,
       recentEpisodes: s.recentEpisodes,
       latestEpisodes: s.latestEpisodes,
+      current: s.current,
       refreshingAll: s.refreshingAll,
       refreshAllShows: s.refreshAllShows,
       setImportOpen: s.setImportOpen,
@@ -352,6 +365,13 @@ export function HomeView() {
   const [onlyUnwatched, setOnlyUnwatched] = useState(false);
   const pageRef = useRef<HTMLDivElement>(null);
   const hasContent = shows.length > 0 || recentEpisodes.length > 0;
+
+  useEffect(() => {
+    const st = useStore.getState();
+    if (st.current && st.time > 0) {
+      st.syncProgressLocal(st.current.id, st.time, undefined, st.current);
+    }
+  }, []);
 
   useLayoutEffect(() => {
     if (!hasContent || !pageRef.current) return;
@@ -388,8 +408,8 @@ export function HomeView() {
   };
 
   const hero = useMemo(
-    () => recentEpisodes.find((e) => !isDone(e) && e.progress > 5 && (e.audioUrl || e.videoId)) ?? null,
-    [recentEpisodes],
+    () => pickContinueHero(recentEpisodes, current ? { ep: current, time: current.progress } : null),
+    [recentEpisodes, current],
   );
 
   const updatesResult = useMemo(
@@ -574,6 +594,10 @@ export function ShowView({ id }: { id: string }) {
   );
 
   const show = shows.find((s) => s.id === id);
+  const cleanDesc = useMemo(() => notesText(show?.description), [show?.description]);
+  const showTitleZh = useShowTitleZh(show?.title);
+  const descZh = useTitleZh(cleanDesc ? cleanDesc.slice(0, 600) : undefined);
+
   const episodes = showEpisodes[id];
   const [filter, setFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
@@ -602,7 +626,7 @@ export function ShowView({ id }: { id: string }) {
     let watched = 0;
     let subs = 0;
     for (const e of list) {
-      if (isDone(e)) watched += 1;
+      if (isEpisodeDone(e)) watched += 1;
       else unwatched += 1;
       if (e.hasTranscript || e.transcriptUrl) subs += 1;
     }
@@ -613,10 +637,13 @@ export function ShowView({ id }: { id: string }) {
     const list = episodes ?? [];
     const q = filter.trim().toLowerCase();
     return list.filter((e) => {
-      if (statusFilter === "unwatched" && isDone(e)) return false;
-      if (statusFilter === "watched" && !isDone(e)) return false;
+      if (statusFilter === "unwatched" && isEpisodeDone(e)) return false;
+      if (statusFilter === "watched" && !isEpisodeDone(e)) return false;
       if (statusFilter === "subs" && !e.hasTranscript && !e.transcriptUrl) return false;
-      if (q && !e.title.toLowerCase().includes(q)) return false;
+      if (q) {
+        const zhTitle = getCachedTitleZh(e.title)?.toLowerCase();
+        if (!e.title.toLowerCase().includes(q) && (!zhTitle || !zhTitle.includes(q))) return false;
+      }
       return true;
     });
   }, [episodes, statusFilter, filter]);
@@ -692,9 +719,9 @@ export function ShowView({ id }: { id: string }) {
   }
 
   const isYt = show.kind === "youtube";
-  const cleanDesc = notesText(show.description);
   const kindLabel = show.kind === "youtube" ? "YouTube 频道" : show.kind === "xiaoyuzhou" ? "小宇宙" : "播客";
   const hasMoreYt = isYt && showHasMore[id] !== false;
+  const shownDesc = descZh ?? cleanDesc;
 
   return (
     <div className="page" ref={pageRef} onScroll={(e) => saveScroll(scrollKey, e.currentTarget.scrollTop)}>
@@ -710,11 +737,12 @@ export function ShowView({ id }: { id: string }) {
               <span>{kindLabel}</span>
               {show.author && show.author !== show.title ? <span>· {show.author}</span> : null}
             </p>
-            <h1 className="show-title-h">{show.title}</h1>
-            {cleanDesc && (
+            <h1 className="show-title-h">{showTitleZh ?? show.title}</h1>
+            {showTitleZh && <p className="ep-title-orig">{show.title}</p>}
+            {shownDesc && (
               <div>
-                <p className={`show-desc ${descExpanded ? "" : "clamp3"}`}>{cleanDesc}</p>
-                {cleanDesc.length > 120 && (
+                <p className={`show-desc ${descExpanded ? "" : "clamp3"}`}>{shownDesc}</p>
+                {shownDesc.length > 120 && (
                   <button type="button" className="link-btn" onClick={() => setDescExpanded((v) => !v)}>
                     {descExpanded ? "收起简介" : "展开简介"}
                   </button>
