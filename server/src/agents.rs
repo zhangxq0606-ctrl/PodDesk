@@ -771,7 +771,7 @@ impl Codex {
         let rpc = Rpc::spawn(path, &["app-server"]).await?;
         rpc.request(
             "initialize",
-            json!({ "clientInfo": { "name": "podcast-desk", "title": "Podcast Desk", "version": env!("CARGO_PKG_VERSION") } }),
+            json!({ "clientInfo": { "name": "podcast-desk", "title": "PodDesk", "version": env!("CARGO_PKG_VERSION") } }),
             30,
         )
         .await?;
@@ -813,7 +813,7 @@ impl Codex {
             };
             let m = v["method"].as_str().unwrap_or("");
             if v.get("id").is_some() && !m.is_empty() {
-                let _ = self.rpc.reply_error(&v["id"], "Podcast Desk 不允许本机 AI 执行操作").await;
+                let _ = self.rpc.reply_error(&v["id"], "PodDesk 不允许本机 AI 执行操作").await;
                 continue;
             }
             if v["params"]["threadId"].as_str().is_some_and(|t| t != thread_id) {

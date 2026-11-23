@@ -35,7 +35,7 @@ class ErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryStat
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error("[Podcast Desk] Uncaught UI error:", error, info.componentStack);
+    console.error("[PodDesk] Uncaught UI error:", error, info.componentStack);
   }
 
   render() {
@@ -217,7 +217,7 @@ function AppShell() {
     return (
       <div className="boot">
         <div className="panel-empty">
-          <p className="lead">无法连接 Podcast Desk 本地服务</p>
+          <p className="lead">无法连接 PodDesk 本地服务</p>
           <p className="error-text">{bootError}</p>
         </div>
       </div>

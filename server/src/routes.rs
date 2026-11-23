@@ -72,7 +72,11 @@ fn is_local_origin(origin: &HeaderValue) -> bool {
         || s == "http://localhost"
 }
 
-pub fn router(state: Arc<AppState>, dist_dir: PathBuf) -> Router {
+#[derive(rust_embed::RustEmbed)]
+#[folder = "../dist"]
+struct EmbeddedDist;
+
+pub fn router(state: Arc<AppState>, dist_dir: Option<PathBuf>) -> Router {
     let cors = CorsLayer::new()
         .allow_origin(AllowOrigin::predicate(|origin, _| is_local_origin(origin)))
         .allow_methods([Method::GET, Method::POST, Method::DELETE])
@@ -123,20 +127,43 @@ pub fn router(state: Arc<AppState>, dist_dir: PathBuf) -> Router {
         .with_state(state)
         .layer(cors);
 
-    let index = dist_dir.join("index.html");
-    if index.is_file() {
-        let spa = ServeDir::new(&dist_dir).not_found_service(ServeFile::new(index));
-        api.fallback_service(spa)
+    if let Some(dir) = dist_dir {
+        let index = dir.join("index.html");
+        if index.is_file() {
+            let spa = ServeDir::new(&dir).not_found_service(ServeFile::new(index));
+            return api.fallback_service(spa);
+        }
+    }
+    if EmbeddedDist::get("index.html").is_some() {
+        api.fallback(get(serve_embedded))
     } else {
         api.fallback(get(missing_frontend))
     }
 }
 
+async fn serve_embedded(uri: axum::http::Uri) -> Response {
+    let rel = uri.path().trim_start_matches('/');
+    let key = if rel.is_empty() { "index.html" } else { rel };
+    let (resolved, file) = match EmbeddedDist::get(key) {
+        Some(f) => (key, f),
+        None => match EmbeddedDist::get("index.html") {
+            Some(f) => ("index.html", f),
+            None => return missing_frontend().await.into_response(),
+        },
+    };
+    let mime = mime_guess::from_path(resolved).first_or_octet_stream();
+    (
+        [(axum::http::header::CONTENT_TYPE, mime.as_ref().to_string())],
+        file.data.into_owned(),
+    )
+        .into_response()
+}
+
 async fn missing_frontend() -> Html<&'static str> {
     Html(
-        "<!doctype html><html lang='zh-CN'><head><meta charset='utf-8'><title>Podcast Desk</title></head>\
+        "<!doctype html><html lang='zh-CN'><head><meta charset='utf-8'><title>PodDesk</title></head>\
          <body style='font-family:system-ui,sans-serif;max-width:620px;margin:48px auto;padding:0 16px;'>\
-         <h2>Podcast Desk 后端服务已启动</h2>\
+         <h2>PodDesk 后端服务已启动</h2>\
          <p>未找到前端构建产物 <code>dist/index.html</code>。请在项目根目录执行 <code>npm run build</code>，或使用 Vite 开发模式 <code>npm run dev</code>。</p>\
          </body></html>",
     )

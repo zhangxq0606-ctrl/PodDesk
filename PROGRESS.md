@@ -8,13 +8,17 @@ last_verified: 2026-11-23
 
 # 当前里程碑
 
-阶段 1（单集视频工作台）、阶段 2（单集音频/纯文稿工作台）、阶段 3（首页、订阅与频道详情页）、全站 8 套浅深多主题精修，以及**阶段 4（三档本地离线 ASR + CrispASR v0.8.55 硬件探测回退）**均已落地并通过编译、单测、真机下载/转写/回退与界面实测；下一步推进阶段 5（窄屏 `<900px` 响应排布、首版总检与提交）及后续阶段 6（二期知识沉淀导出）。
+阶段 1–4、全站 8 套浅深多主题精修，以及**Tauri v2 Windows 独立桌面客户端收口**（薄桌面壳 + 内嵌前端 + 托盘/防多开 + 含 VC++ 运行库的 NSIS 安装包）均已落地并完成基础实测；当前处于**桌面窗口试玩验收与 80→90 分细节打磨阶段**（含窄屏 `<900px` 适配与二期知识沉淀导出）。
 
 # 已验证能力
 
 - **全量编译与静态检查**：
-  - 前端：`npm run typecheck`（`tsc --noEmit`）与 `npm run build`（Vite 6 打包 `dist/index.html`、`dist/assets/index-Bie0f5ui.css`、`dist/assets/index-BuWk6S-8.js`）退出 0；
-  - 后端（无 `CMake`/`LLVM`、无 `whisper-rs`、无 `tauri`）：`cargo test` 零警告通过（**49 passed, 0 failed, 1 ignored**，涵盖 `db`、`net`、`feeds`、`youtube`、`transcript`、`translate`、`llm`、`agents`、`asr_context`、`asr::{catalog,hardware,engine,media,ytdlp}`、`cloud`、`routes`），`cargo build` 退出 0 产出 `server/target/debug/podcast-desk.exe`。
+  - 前端：`npm run typecheck`（`tsc --noEmit`）与 `npm run build`（Vite 6 打包 `dist/`）退出 0；
+  - 后端（无 `CMake`/`LLVM`、无 `whisper-rs`）：`cargo test` 零警告通过（**49 passed, 0 failed, 1 ignored**），`cargo build`（`server/`）产出独立 CLI `server/target/debug/podcast-desk.exe`；
+  - 桌面端：`npm run tauri:build` 退出 0，产出 `desktop/target/release/podcast-desk-desktop.exe`（23.4 MB，内嵌前端 `dist/`）与 NSIS 安装包 `desktop/target/release/bundle/nsis/PodDesk_0.1.0_x64-setup.exe`（6.00 MiB，随包携带 4 个 VS 2022 VC++ 运行库 DLL）。
+- **Tauri v2 桌面端与数据迁移实测**：
+  - 已将原 `D:\project\podcast-desk\data\` 订阅库、`CrispASR v0.8.55`（`vulkan` + `cpu`）、Silero VAD 与两档离线模型无损复制至 `%LOCALAPPDATA%\podcast-desk`；
+  - 实机启动 `podcast-desk-desktop.exe` 验证无黑框、`GET /` 返回 HTTP `200`（内嵌前端）、`GET /api/health` 指向 `%LOCALAPPDATA%\podcast-desk` 且完整可见既有 2 个订阅、`GET /api/asr/models` 识别 RTX 5070 Ti（`-dev 1` Vulkan）与双模型就绪；二次启动实测触发单实例锁定并立即退出（仅保留 1 个进程）。
 - **阶段 4 本地离线 ASR 与硬件探测回退实测（`http://127.0.0.1:14327` + 临时隔离 `--data-dir`）**：
   - `GET /api/asr/models` 正确识别本机 `NVIDIA GeForce RTX 5070 Ti Laptop GPU`（12,227 MiB）+ `Intel(R) Graphics` 核显并过滤 `GameViewer Virtual Display Adapter` 虚拟显示卡，推荐 `vulkan` + `qwen3-0.6b`；
   - 实测通过 `POST /api/asr/models/download`（含 HTTP `Range` 断点续传重试）安装 `CrispASR v0.8.55`（`vulkan` + `cpu` 双变体）、Silero VAD（`ggml-silero-v6.2.0.bin`，864 KB）、`SenseVoice-Small (Q8_0)`（240 MB）与 `Qwen3-ASR 0.6B (Q4_K)`（602 MB，非 `imatrix`）至 `D:\project\podcast-desk\data\`，短样音试跑自动解析并锁定独显 `-dev 1`（`verified: true`）；
@@ -57,6 +61,10 @@ last_verified: 2026-11-23
 
 # 最近完成
 
+- **2026-11-23（Tauri v2 独立桌面客户端 + NSIS 安装包）**：
+  - 后端库化与内嵌资产（[Cargo.toml](server/Cargo.toml)、[lib.rs](server/src/lib.rs)、[main.rs](server/src/main.rs)、[routes.rs](server/src/routes.rs)）：抽离 `podcast_desk_core` 共享库与 `start_server()`，增加 `rust-embed` 内嵌 `dist/` 回退（保留原 CLI 独立运行能力）。
+  - 桌面薄壳与打包（`desktop/`、[generate-icons.py](scripts/generate-icons.py)、[stage-vcrt.ps1](scripts/stage-vcrt.ps1)、[run-tauri.ps1](scripts/run-tauri.ps1)、[package.json](package.json)）：接入 `Tauri v2`（`tray-icon`）与 `tauri-plugin-single-instance`，实现无黑框启动、窗口点 `×` 缩入右下角托盘继续播放/转写、托盘右键「打开工作台 / 打开数据目录 / 退出」、外链跳系统浏览器、启动自动把安装目录（4 个 VC++ 运行库 DLL）前置进 `PATH` 防干净电脑跑 `CrispASR` 闪退，并配置中文 NSIS 安装向导（`currentUser` 免管理员权限）。
+  - 数据迁移与验证：无损迁移 `data/` 至 `%LOCALAPPDATA%\podcast-desk`；`npm run tauri:build` 成功产出 `PodDesk_0.1.0_x64-setup.exe`（6.00 MiB），实测独立 exe 启动、内嵌前端、`%LOCALAPPDATA%` 读写与单实例防多开均通过。
 - **2026-11-23（阶段 4：三档本地离线 ASR + CrispASR v0.8.55 硬件探测回退 + 顺手模块拆分）**：
   - 后端重构与拆分（`server/src/asr/` 目录拆为 `catalog.rs` / `hardware.rs` / `engine.rs` / `media.rs` / `ytdlp.rs` / `mod.rs`，移除旧 `asr.rs`；[routes.rs](server/src/routes.rs)）：落地 `SenseVoice-Small (Q8_0)`（240 MB，FunASR v1.1 署名）、`Qwen3-ASR 0.6B (Q4_K)`（602 MB，非 `imatrix`）与 `Qwen3-ASR 1.7B (Q5_K)`（1.66 GB）三档目录及 Silero VAD（864 KB）；实现 Windows GPU 探测（过滤虚拟显示卡 + `nvidia-smi` 显存校准）、AVX2/ARM64 判定、短样音试跑锁定独显 `-dev`、GPU 失败自动安装回退 `cpu`/`cpu-legacy` 持久化（`asr-runtime.json`），以及下载 HTTP `Range` 断点续传重试，新增 `POST /api/asr/probe`。
   - 前端拆分与升级（拆出 [KeyStatusRow.tsx](src/components/settings/KeyStatusRow.tsx) 与 [AsrSettingsSection.tsx](src/components/settings/AsrSettingsSection.tsx)，精简 [SettingsModal.tsx](src/components/SettingsModal.tsx)；同步升级 [api.ts](src/lib/api.ts)、[store.ts](src/store.ts)、[jobs.ts](src/lib/jobs.ts)、[TranscriptPanel.tsx](src/components/TranscriptPanel.tsx) 与 [styles.css](src/styles.css)）：支持硬件/加速状态展示、手动切换 Vulkan/CUDA 13/CPU 并触发校验、三档模型卡片管理与单集页分组选择；旧 `qwen3` 偏好平滑迁移为 `local:<modelId>`。

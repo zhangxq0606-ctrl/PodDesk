@@ -45,7 +45,7 @@ export function buildQaSystem(
   const extraPref = userInstruction?.trim()
     ? `\n\n用户自定义的回答偏好（在不违背上述忠实原稿与时间戳规则的前提下优先遵循）：\n${userInstruction.trim()}`
     : "";
-  return `你是 Podcast Desk 的节目助手，帮助用户深入理解一期中英文播客或视频内容。
+  return `你是 PodDesk 的节目助手，帮助用户深入理解一期中英文播客或视频内容。
 节目：${show || "单集直开"}
 本期：${title}${posLine}
 

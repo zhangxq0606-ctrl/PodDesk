@@ -1,28 +1,8 @@
-mod agents;
-mod asr;
-mod asr_context;
-mod cloud;
-mod db;
-mod feeds;
-mod llm;
-mod model;
-mod net;
-mod routes;
-mod transcript;
-mod translate;
-mod youtube;
-
 use anyhow::{anyhow, Context, Result};
-use routes::AppState;
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+use podcast_desk_core::{
+    detect_dist_dir, dev_or_standard_data_dir, open_browser, start_server, ServerConfig, DEFAULT_PORT,
 };
-use tokio::net::TcpListener;
-
-const DEFAULT_PORT: u16 = 14327;
-const PORT_SPAN: u16 = 20;
+use std::path::PathBuf;
 
 struct CliArgs {
     port: u16,
@@ -59,110 +39,29 @@ fn parse_args() -> Result<CliArgs> {
     Ok(CliArgs { port, data_dir, dist_dir, no_open })
 }
 
-fn default_data_dir() -> PathBuf {
-    let cwd_dist = Path::new("package.json").is_file() || Path::new("../package.json").is_file();
-    if cwd_dist {
-        if Path::new("package.json").is_file() {
-            return PathBuf::from("data");
-        }
-        return PathBuf::from("../data");
-    }
-    dirs::data_local_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("podcast-desk")
-}
-
-fn detect_dist_dir() -> PathBuf {
-    let mut candidates = vec![PathBuf::from("dist"), PathBuf::from("../dist")];
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            candidates.push(dir.join("dist"));
-            if let Some(up2) = dir.parent().and_then(|p| p.parent()) {
-                candidates.push(up2.join("dist"));
-                if let Some(up3) = up2.parent() {
-                    candidates.push(up3.join("dist"));
-                }
-            }
-        }
-    }
-    for c in &candidates {
-        if c.join("index.html").is_file() {
-            return c.clone();
-        }
-    }
-    candidates.into_iter().next().unwrap_or_else(|| PathBuf::from("dist"))
-}
-
-async fn bind_free_port(start: u16) -> Result<(u16, TcpListener)> {
-    for offset in 0..PORT_SPAN {
-        let Some(p) = start.checked_add(offset) else { break };
-        if let Ok(listener) = TcpListener::bind(("127.0.0.1", p)).await {
-            return Ok((p, listener));
-        }
-    }
-    Err(anyhow!("端口 {start}..{} 均已被占用", start.saturating_add(PORT_SPAN - 1)))
-}
-
-fn open_browser(url: &str) {
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        let _ = std::process::Command::new("cmd")
-            .args(["/C", "start", "", url])
-            .creation_flags(0x08000000)
-            .spawn();
-    }
-    #[cfg(target_os = "macos")]
-    {
-        let _ = std::process::Command::new("open").arg(url).spawn();
-    }
-    #[cfg(target_os = "linux")]
-    {
-        let _ = std::process::Command::new("xdg-open").arg(url).spawn();
-    }
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = parse_args()?;
-    let data_dir = cli.data_dir.unwrap_or_else(default_data_dir);
-    std::fs::create_dir_all(&data_dir).with_context(|| format!("创建数据目录失败：{}", data_dir.display()))?;
-    std::fs::create_dir_all(data_dir.join("media"))
-        .with_context(|| format!("创建媒体目录失败：{}", data_dir.join("media").display()))?;
-    asr::streams::init(&data_dir);
-
-    let db_path = data_dir.join("podcast-desk.sqlite");
-    let conn = db::open(&db_path).with_context(|| format!("打开数据库失败：{}", db_path.display()))?;
-    if let Ok(Some(saved_proxy)) = db::get_setting(&conn, "proxy") {
-        if let Err(err) = net::set_proxy(&saved_proxy) {
-            eprintln!("警告：恢复已保存代理失败（{err}），将使用系统代理");
-        }
-    }
-
+    let data_dir = cli.data_dir.unwrap_or_else(dev_or_standard_data_dir);
     let dist_dir = cli.dist_dir.unwrap_or_else(detect_dist_dir);
-    let (port, listener) = bind_free_port(cli.port).await?;
-    let state = Arc::new(AppState {
-        db: Mutex::new(conn),
-        data_dir: data_dir.clone(),
-        port,
-        jobs: Mutex::new(HashMap::new()),
-    });
-    let app = routes::router(state, dist_dir.clone());
-    let url = format!("http://127.0.0.1:{port}");
-    println!("podcast-desk server listening on {url}");
-    println!("  data_dir: {}", data_dir.display());
-    println!("  dist_dir: {}", dist_dir.display());
+
+    let mut server = start_server(ServerConfig {
+        port: cli.port,
+        data_dir,
+        dist_dir: Some(dist_dir),
+    })
+    .await?;
+
+    println!("podcast-desk server listening on {}", server.url);
+    println!("  data_dir: {}", server.data_dir.display());
+    println!("  dist_dir: {}", server.dist_source);
 
     if !cli.no_open {
-        open_browser(&url);
+        open_browser(&server.url);
     }
 
-    axum::serve(listener, app)
-        .with_graceful_shutdown(async {
-            let _ = tokio::signal::ctrl_c().await;
-            println!("\npodcast-desk server shutting down...");
-        })
-        .await?;
-
+    let _ = tokio::signal::ctrl_c().await;
+    println!("\npodcast-desk server shutting down...");
+    server.shutdown();
     Ok(())
 }

@@ -124,7 +124,7 @@ export function Sidebar({ isDrawer }: { isDrawer: boolean }) {
           <PanelLeftClose size={16} />
         </button>
         <div className="brand-text">
-          <div className="brand-name">Podcast Desk</div>
+          <div className="brand-name">PodDesk</div>
         </div>
         <BrandMark />
       </div>

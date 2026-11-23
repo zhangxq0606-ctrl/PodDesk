@@ -10,7 +10,7 @@ const svgFrame = (w: number, h: number, name: string, className?: string) => ({
   className: `ia ${name}${className ? ` ${className}` : ""}`,
 });
 
-/** Custom Podcast Desk geometric brand mark: acoustic desk + warm accent dot. */
+/** Custom PodDesk geometric brand mark: acoustic desk + warm accent dot. */
 export function BrandMark({ className }: ArtProps) {
   return (
     <svg
