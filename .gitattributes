@@ -1,0 +1,14 @@
+* text=auto eol=lf
+
+# Windows scripts keep CRLF so PowerShell and cmd parse them consistently.
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Binary assets
+*.png binary
+*.ico binary
+*.icns binary
+*.dmg binary
+*.exe binary
+*.gguf binary
