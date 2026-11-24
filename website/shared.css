@@ -32,8 +32,8 @@ body.resizing,body.resizing *{cursor:col-resize!important;user-select:none!impor
   border-bottom:1px solid var(--line);background:var(--bg);
 }
 .w-brand{display:flex;align-items:center;gap:9px;flex:none}
-.w-logo{width:22px;height:22px;border-radius:6px;background:var(--text);display:flex;align-items:center;justify-content:center}
-.w-logo i{display:block;width:2px;border-radius:2px;background:var(--bg);margin:0 1px}
+.w-logo{width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;flex:none}
+.w-logo svg{width:100%;height:100%;display:block}
 .w-name{font-weight:650;font-size:13px;letter-spacing:.01em}
 .w-exp-btn{
   appearance:none;border:1px solid var(--line);background:var(--panel);color:var(--text2);

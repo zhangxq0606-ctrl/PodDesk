@@ -311,7 +311,7 @@ PD.winHTML = function (o) {
   const ln = PD.LINES.map(l => `<div class="ln" role="button" tabindex="0"><span class="ln-t">${l.t}</span><div class="ln-axis" aria-hidden="true"><span class="ln-seg-t"></span><span class="ln-seg-b"></span><span class="ln-dot"></span></div><div class="ln-txt"><div class="zh">${l.zh}</div><div class="en">${l.en}</div></div></div>`).join('');
   return `<div class="win" data-state="1" data-lang="zh" style="${o.style || ''}">
 <div class="w-top">
- <span class="w-brand"><span class="w-logo" aria-hidden="true"><i style="height:6px"></i><i style="height:11px"></i><i style="height:8px"></i><i style="height:12px"></i></span><span class="w-name">PodDesk</span></span>
+ <span class="w-brand"><span class="w-logo" aria-hidden="true"><svg viewBox="0 0 28 28" aria-hidden="true"><rect x="1" y="1" width="26" height="26" rx="7" fill="#23201E" stroke="rgba(255,255,255,0.14)" stroke-width="1"/><rect x="8.2" y="11" width="2.4" height="7" rx="1.2" fill="#FAF7F2"/><rect x="12.5" y="7.8" width="2.4" height="13.4" rx="1.2" fill="#FAF7F2"/><rect x="16.8" y="10.4" width="2.4" height="8.2" rx="1.2" fill="#FAF7F2"/><circle cx="21" cy="7.8" r="2.4" fill="#D4622A"/></svg></span><span class="w-name">PodDesk</span></span>
  <button type="button" class="w-exp-btn" data-md-dl><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M5 20h14"/></svg><span>导出 .md</span></button>
 </div>
 <div class="w-body">
