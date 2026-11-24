@@ -46,6 +46,7 @@ p{text-wrap:pretty}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:46px;padding:0 26px;border-radius:99px;font:600 15px var(--sans);letter-spacing:.02em;text-decoration:none;border:1px solid var(--line);color:var(--text);cursor:pointer;background:rgb(19 20 22/.78);transition:transform .15s,background .22s,border-color .22s}
 .btn:active{transform:scale(.98)}.btn:hover{border-color:var(--muted);background:var(--card)}
 .btn-p{background:var(--acc);color:#15110a;border-color:var(--acc)}.btn-p:hover{background:#e3b968;border-color:#e3b968}
+.btn-dl{border-color:color-mix(in srgb,var(--text2) 28%,var(--line));background:rgb(19 20 22/.92)}.btn-dl:hover{border-color:color-mix(in srgb,var(--acc) 55%,var(--line));background:var(--card)}
 
 /* 顶栏（滚离首屏轻收拢） */
 nav.site-nav{position:fixed;inset:0 0 auto;z-index:35;height:68px;display:flex;align-items:center;border-bottom:1px solid transparent;transition:height .24s var(--ease),background-color .24s,border-color .24s}
@@ -305,7 +306,7 @@ nav.site-nav .btn{min-height:36px;padding:0 18px;font-size:13.5px}
 .beta-note strong{display:block;font:500 14px/1.5 var(--sans);color:var(--text)}
 .beta-note>p{margin-top:7px;font-size:13px;line-height:1.72;color:var(--muted);max-width:34em}
 
-.ss-fold{margin-top:12px;text-align:left}
+.ss-fold{margin-top:10px;text-align:left}
 .ss-fold summary{
   list-style:none;cursor:pointer;display:inline-flex;align-items:center;gap:6px;
   font:500 12.5px/1.4 var(--sans);color:var(--acc-text);opacity:.9;
@@ -323,6 +324,8 @@ nav.site-nav .btn{min-height:36px;padding:0 18px;font-size:13.5px}
 .ss-mock .ss-btns{display:flex;gap:8px}
 .ss-mock .ss-b{padding:3px 10px;border:1px solid rgb(255 255 255/.35);border-radius:3px;font:600 11px "Segoe UI",var(--sans);color:#fff}
 .ss-mock .ss-b.run{border-color:var(--acc);background:rgb(214 168 86/.2);color:#ffe4a8}
+.mac-mock{border:1px solid var(--line);background:rgb(19 20 22/.92);color:var(--text2);border-radius:8px;padding:12px 14px;font:12.5px/1.68 var(--sans)}
+.mac-mock b{display:block;font-size:13px;margin-bottom:4px;color:var(--text)}
 
 .beta-issue{
   display:inline-flex;align-items:center;gap:5px;margin-top:16px;
@@ -406,7 +409,7 @@ footer a{color:var(--text2);text-decoration:none;transition:color .2s}footer a:h
    <svg class="i-star" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2.8 2.85 5.77 6.37.93-4.61 4.49 1.09 6.35L12 17.34l-5.7 3 1.09-6.35-4.61-4.49 6.37-.93Z"/></svg>
    <span>Star</span>
   </a>
-  <a class="btn btn-p" href="#beta" data-page-link="4">下载 Windows 版</a>
+  <a class="btn btn-p" href="#beta" data-page-link="4">下载客户端</a>
   <button type="button" class="menu-btn" id="menu-btn" aria-expanded="false" aria-controls="mob-nav" aria-label="打开导航菜单">
    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
   </button>
@@ -419,7 +422,7 @@ footer a{color:var(--text2);text-decoration:none;transition:color .2s}footer a:h
  <a href="#sources" data-page-link="3">多源接入</a>
  <a href="#beta" data-page-link="4">下载与问答</a>
  <a data-rel-href="repoUrl" href="https://github.com/zhangxq0606-ctrl/PodDesk" target="_blank" rel="noreferrer">在 GitHub 点亮 Star</a>
- <a href="#beta" data-page-link="4">下载 Windows 版</a>
+ <a href="#beta" data-page-link="4">下载客户端</a>
 </div>
 
 <aside class="page-dots" id="page-dots" aria-label="页面章节导航">
@@ -575,11 +578,15 @@ footer a{color:var(--text2);text-decoration:none;transition:color .2s}footer a:h
  <div class="beta-hero" data-reveal>
   <span class="beta-eyebrow">OPEN SOURCE · AGPL-3.0</span>
   <h2>下一次收听，从这里开始。</h2>
-  <p class="lede">开源免费、本地运行。下载 Windows 客户端，或前往 GitHub 关注项目进展。</p>
+  <p class="lede">开源免费、本地运行。支持 Windows 与 macOS（Apple Silicon），或前往 GitHub 关注项目进展。</p>
   <div class="cta">
-   <a class="btn btn-p" data-rel-href="downloadUrl" href="https://github.com/zhangxq0606-ctrl/PodDesk/releases" target="_blank" rel="noreferrer">
+   <a class="btn btn-p" data-rel-href="winDownloadUrl" href="https://github.com/zhangxq0606-ctrl/PodDesk/releases" target="_blank" rel="noreferrer">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M5 20h14"/></svg>
     <span>下载 Windows 版</span>
+   </a>
+   <a class="btn btn-dl" data-rel-href="macDownloadUrl" href="https://github.com/zhangxq0606-ctrl/PodDesk/releases" target="_blank" rel="noreferrer">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M5 20h14"/></svg>
+    <span>下载 macOS 版</span>
    </a>
    <a class="btn btn-star" data-rel-href="repoUrl" href="https://github.com/zhangxq0606-ctrl/PodDesk" target="_blank" rel="noreferrer">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2.8 2.85 5.77 6.37.93-4.61 4.49 1.09 6.35L12 17.34l-5.7 3 1.09-6.35-4.61-4.49 6.37-.93Z"/></svg>
@@ -587,26 +594,36 @@ footer a{color:var(--text2);text-decoration:none;transition:color .2s}footer a:h
    </a>
   </div>
   <div class="beta-facts">
-   <span id="beta-facts">v0.1.0 内测版 · Windows 10/11 (64位) · 约 6 MB</span>
+   <span id="beta-facts">v0.1.1 内测版 · Windows 10/11 (64位) 约 6.1 MB · macOS 11+ (Apple Silicon) 约 8.3 MB</span>
   </div>
  </div>
 
  <div class="beta-lower" data-reveal style="transition-delay:.06s">
   <div class="beta-note">
    <h3 class="beta-col-k">安装提示</h3>
-   <strong>首次运行遇到 Windows「已保护你的电脑」？</strong>
-   <p>因当前版本未配备商业代码签名证书，Windows 首次运行会弹出默认安全提示。点击「更多信息」再选择「仍要运行」即可继续安装。</p>
+   <strong>首次打开遇到系统安全提示？</strong>
+   <p>因当前开源内测版未配备商业代码签名证书，Windows 与 macOS 首次运行均可能弹出默认安全拦截，按下方对应系统步骤放行即可。</p>
    <details class="ss-fold">
-    <summary>查看弹窗示意</summary>
+    <summary>Windows「已保护你的电脑」处理方式</summary>
     <div class="ss-body">
      <div class="ss-mock" aria-label="Windows SmartScreen 提示示意">
       <b>Windows 已保护你的电脑</b>
       <span>Microsoft Defender SmartScreen 已阻止启动无法识别的应用。</span><br>
       <span class="ss-link">更多信息</span>
       <div class="ss-row">
-       <span>应用: <span data-rel="fileName">PodDesk_0.1.0_x64-setup.exe</span></span>
+       <span>应用: <span data-rel="winFileName">PodDesk_0.1.1_x64-setup.exe</span></span>
        <div class="ss-btns"><span class="ss-b run">仍要运行</span><span class="ss-b">不运行</span></div>
       </div>
+     </div>
+    </div>
+   </details>
+   <details class="ss-fold">
+    <summary>macOS「无法验证开发者 / 已阻止打开」处理方式</summary>
+    <div class="ss-body">
+     <div class="mac-mock" aria-label="macOS 首次放行步骤">
+      <b>macOS 首次启动放行步骤</b>
+      1. 打开 <span class="mono" data-rel="macFileName">PodDesk_0.1.1_aarch64.dmg</span>，将 PodDesk 拖入「应用程序」。<br>
+      2. 首次启动若被拦截，先点击「完成」（或「好」），再打开「系统设置 › 隐私与安全性」，滑到底部点击「仍要打开」即可（仅首次需要）。
      </div>
     </div>
    </details>
@@ -617,17 +634,17 @@ footer a{color:var(--text2);text-decoration:none;transition:color .2s}footer a:h
    <h3 class="beta-col-k">常见问题</h3>
    <div class="faq">
     <details><summary>没有 API Key 能直接用吗？</summary><p>可以。获取官方字幕、本机离线转写与基础翻译均无需配置 API Key；若本机已登录 Codex、Claude Code、Gemini CLI 等命令行 Agent，在场问答也可直接接入，复用你现有的订阅额度。</p></details>
-    <details><summary>访问 YouTube 或使用翻译需要代理吗？</summary><p>访问 YouTube 与谷歌免费翻译需本机网络可达，PodDesk 会自动沿用你的 Windows 系统代理，无需单独配置；小宇宙、本地音视频导入及国内直连模型无需代理。</p></details>
-    <details><summary>支持 macOS 吗？</summary><p>当前已支持 Windows 10/11（64位），macOS 版本正在适配推进中，即将发版。欢迎在 GitHub 点亮 Star 关注项目进展，上线后将第一时间在 Releases 发布。</p></details>
+    <details><summary>访问 YouTube 或使用翻译需要代理吗？</summary><p>访问 YouTube 与谷歌免费翻译需本机网络可达，PodDesk 会自动沿用你的系统代理，无需单独配置；小宇宙、本地音视频导入及国内直连模型无需代理。</p></details>
+    <details><summary>支持 macOS 吗？</summary><p>支持。现已提供 macOS 11+（Apple Silicon M 系列芯片）原生 .dmg 安装包，本地离线转写自动启用 Metal 加速；Intel Mac 暂可从源码自行构建。</p></details>
    </div>
   </div>
  </div>
 
  <footer><div class="f-in">
-  <span>PodDesk <span data-rel="version">v0.1.0</span> · AGPL-3.0 开源</span>
+  <span>PodDesk <span data-rel="version">v0.1.1</span> · AGPL-3.0 开源</span>
   <div class="f-links">
    <a data-rel-href="repoUrl" href="https://github.com/zhangxq0606-ctrl/PodDesk" target="_blank" rel="noreferrer">GitHub 仓库</a>
-   <a data-rel-href="downloadUrl" href="https://github.com/zhangxq0606-ctrl/PodDesk/releases" target="_blank" rel="noreferrer">Releases</a>
+   <a data-rel-href="releasesUrl" href="https://github.com/zhangxq0606-ctrl/PodDesk/releases" target="_blank" rel="noreferrer">Releases</a>
    <a data-rel-href="issuesUrl" href="https://github.com/zhangxq0606-ctrl/PodDesk/issues" target="_blank" rel="noreferrer">提交反馈</a>
    <span>灵感与架构参考 SubCast（声渡）</span>
   </div>
@@ -639,12 +656,16 @@ footer a{color:var(--text2);text-decoration:none;transition:color .2s}footer a:h
 <script>
 /* ===== 统一发布配置区（发新版本或换直链只需改这里） ===== */
 const RELEASE = {
-  version: 'v0.1.0',
+  version: 'v0.1.1',
   stage: '内测版',
-  fileName: 'PodDesk_0.1.0_x64-setup.exe',
-  sizeLabel: '约 6 MB',
+  winFileName: 'PodDesk_0.1.1_x64-setup.exe',
+  winSizeLabel: '约 6.1 MB',
+  winDownloadUrl: 'https://github.com/zhangxq0606-ctrl/PodDesk/releases/download/v0.1.1/PodDesk_0.1.1_x64-setup.exe',
+  macFileName: 'PodDesk_0.1.1_aarch64.dmg',
+  macSizeLabel: '约 8.3 MB',
+  macDownloadUrl: 'https://github.com/zhangxq0606-ctrl/PodDesk/releases/download/v0.1.1/PodDesk_0.1.1_aarch64.dmg',
+  releasesUrl: 'https://github.com/zhangxq0606-ctrl/PodDesk/releases',
   repoUrl: 'https://github.com/zhangxq0606-ctrl/PodDesk',
-  downloadUrl: 'https://github.com/zhangxq0606-ctrl/PodDesk/releases/download/v0.1.0/PodDesk_0.1.0_x64-setup.exe',
   issuesUrl: 'https://github.com/zhangxq0606-ctrl/PodDesk/issues'
 };
 
@@ -657,13 +678,14 @@ function announce(msg) { if (!liveStatus) return; liveStatus.textContent = ''; r
 /* 注入发布配置 */
 (function applyRelease() {
   document.querySelectorAll('[data-rel="version"]').forEach(el => el.textContent = RELEASE.version);
-  document.querySelectorAll('[data-rel="fileName"]').forEach(el => el.textContent = RELEASE.fileName);
+  document.querySelectorAll('[data-rel="winFileName"]').forEach(el => el.textContent = RELEASE.winFileName);
+  document.querySelectorAll('[data-rel="macFileName"]').forEach(el => el.textContent = RELEASE.macFileName);
   document.querySelectorAll('[data-rel-href]').forEach(el => {
     const key = el.dataset.relHref;
     if (RELEASE[key]) el.href = RELEASE[key];
   });
   const facts = $('#beta-facts');
-  if (facts) facts.textContent = `${RELEASE.version} ${RELEASE.stage} · Windows 10/11 (64位) · ${RELEASE.sizeLabel}`;
+  if (facts) facts.textContent = `${RELEASE.version} ${RELEASE.stage} · Windows 10/11 (64位) ${RELEASE.winSizeLabel} · macOS 11+ (Apple Silicon) ${RELEASE.macSizeLabel}`;
 })();
 
 /* 移动端导航折叠菜单 */

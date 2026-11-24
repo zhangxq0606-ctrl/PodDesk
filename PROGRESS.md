@@ -8,15 +8,15 @@ last_verified: 2026-11-24
 
 # 当前里程碑
 
-阶段 1–4、Tauri v2 Windows 独立桌面客户端收口、**第一关「架构模块化、性能治理、可靠性补齐与前端测试护栏」**、**第二关「UI 质感重塑、8 套三轴主题体系与微动效」**与**macOS Apple Silicon 真机适配、`.dmg` 打包与跨平台 CI 护栏**均已完成；Windows 安装包仍为 `PodDesk_0.1.0_x64-setup.exe`（`6.05 MiB`），macOS 新增 `PodDesk_0.1.0_aarch64.dmg`（`8.27 MiB`）；`README.md` 按船长约定暂留至对外发布前拟写。
+阶段 1–4、Tauri v2 Windows/macOS 双端桌面客户端收口、**第一关「架构模块化、性能治理与前端测试护栏」**、**第二关「UI 质感重塑与 8 套三轴主题体系」**、**macOS Apple Silicon 真机适配**及**跨平台 CI/CD 与 AI 自感知运维治理（`v0.1.1`）**均已完成；Windows 本机已通过全量回归并产出 `PodDesk_0.1.1_x64-setup.exe`（`6.05 MiB`），双端官网与标签自动发版流水线已就绪；`README.md` 按船长约定暂留至对外发布前拟写。
 
 # 已验证能力
 
-- **全量编译、单测、对比度门禁与安装包（第二关收口复验通过）**：
-  - 前端单测：`npm run test`（Vitest `4.1.12`）通过 **5 个测试文件 / 22 条用例**（`virtualList` 3、`format` 4、`themes` 4、`subexport` 5、`ai` 6，覆盖 8 套主题 WCAG 2.1 对比度底线与 OKLCH 自动求参引擎）；
-  - 前端检查与生产构建：`npm run typecheck`（`tsc --noEmit`）与 `npm run build`（Vite 6 打包 `dist/`，2,191 modules，CSS `99.36 kB` / JS `502.85 kB`）退出 0；扫描 `dist/` 确认开发态实验室代码 **0 泄漏（`LAB_HITS=0`）**；
-  - 后端（无 `CMake`/`LLVM`、无 `whisper-rs`）：`server/` 下 `cargo test` 零警告通过（**53 passed, 0 failed, 1 ignored**），`cargo build` 退出 0 产出 `server/target/debug/podcast-desk.exe`；
-  - 桌面端：`npm run tauri:build`（38.57s 编译 release）退出 0，产出最新 `desktop/target/release/podcast-desk-desktop.exe`（`23,676,416` bytes）与 NSIS 安装包 `desktop/target/release/bundle/nsis/PodDesk_0.1.0_x64-setup.exe`（**6.05 MiB**，随包携带 4 个 VS 2022 VC++ 运行库 DLL）。
+- **跨平台工程治理与 `0.1.1` Windows 全量复验（2026-11-24，最新实测）**：
+  - 版本与规范护栏：`npm run version:sync 0.1.1` 与 `npm run version:check` / `--tag v0.1.1` 校验 `package.json`、`desktop/tauri.conf.json`、`server/Cargo.toml`、`desktop/Cargo.toml`、`website/index.html` 共 5 处版本一致；[rust-toolchain.toml](rust-toolchain.toml) 改为 `stable`、`Cargo.toml` 声明 `rust-version = "1.85"`，3 份 `desktop/tauri*.conf.json` 修复 `$schema` 为 `config.schema.json`，[run-tauri.mjs](scripts/run-tauri.mjs) 消除 Windows Node `[DEP0190]` 警告并清理废弃 `scripts/run-tauri.ps1`；
+  - 前端单测、类型与构建：`npm run test`（Vitest `4.1.12`）通过 **7 个测试文件 / 27 条用例**；`npm run typecheck`（`tsc --noEmit`）与 `npm run build`（Vite 6，2,193 modules，CSS `100.18 kB` / JS `507.34 kB`）退出 0；[website/index.html](website/index.html) 升级为 Windows + macOS 双端下载及放行指引，内联脚本 `node --check` 通过；
+  - 后端与桌面端（无 `CMake`/`LLVM`、无 `whisper-rs`）：`cargo check` 同步两份 `Cargo.lock`，`cargo test --manifest-path server/Cargo.toml` 零警告通过（**54 passed, 0 failed, 1 ignored**）；`npm run tauri:build` 零警告退出 0，产出 `desktop/target/release/podcast-desk-desktop.exe` 与 NSIS 安装包 `PodDesk_0.1.1_x64-setup.exe`（**6.05 MiB**，随包携带 4 个 VC++ 运行库 DLL）；
+  - 运维与 GitHub 治理：新建 [docs/OPERATIONS.md](docs/OPERATIONS.md) 并同步 [AGENTS.md](AGENTS.md)（去单机路径偏心 + 运维指针）、优化 [ci.yml](.github/workflows/ci.yml)（文档/官网改动 `paths-ignore` 与 `Swatinem/rust-cache@v2`）、新增 [release.yml](.github/workflows/release.yml)（`v*.*.*` 标签双端自动打包 Release 草稿）、开启 GitHub 仓合并 PR 后自动删分支；工作流 YAML 语法校验通过（云端 `release.yml` 待推标签实弹验证）。
 - **macOS Apple Silicon 真机适配、DMG 打包与跨平台护栏（2026-11-24，Apple M1 / macOS 15.8）**：
   - 打包与安装：`npm run tauri:build` 首次通过，产出 `PodDesk.app`（24.58 MiB）与 `PodDesk_0.1.0_aarch64.dmg`（**8.27 MiB**，SHA-256 `b4157864…957ceb`）；从 dmg 复制到 `/Applications` 后启动，ad-hoc 签名 `spctl` 判定 accepted，本地构建无 quarantine。
   - 桌面壳链路：菜单栏状态项存在；`Cmd+W` 关闭隐入后台、点 Dock 图标恢复窗口；WebView 内 `Cmd+A/C/V` 正常；外链唤起默认浏览器；单实例二次启动仅保留 1 个进程；退出重启后字幕与 `window-state.json` 完整恢复。
@@ -55,21 +55,28 @@ last_verified: 2026-11-24
 - 高配档 `Qwen3-ASR 1.7B (Q5_K)`（1.66 GB）及长音频播客（>30 分钟）的 Silero VAD 切句字幕密度与 `[mm:ss]` 跳转体验；
 - 豆包 / 硅基流动 / DeepSeek 等付费云端 ASR 与需配 Key 云端大模型（如 DeepSeek）/ 其他本机 CLI Agent（如 `Gemini CLI`、`Claude Code`）完整真机实测；
 - 按需粘贴真实 YouTube `cookies.txt` 后绕过 `yt-dlp` 人机验证的真机效果。
-- Windows 真机在本次合并后复跑 `npm run tauri:build` 并安装 NSIS 包，重点确认 ASR 文案仍为 `CPU (AVX2)` / GPU、托盘与关闭缩托盘行为未受 macOS 条件分支影响（Windows CI 已过，真机未复核）；
-- macOS 从 Release 下载的 dmg 经 Gatekeeper 首次打开（本地构建无 quarantine，下载场景未实测）；
-- macOS 托盘右键菜单三项（打开 PodDesk / 打开数据目录 / 退出）的实际点击（自动化环境未授予屏幕录制权限；底层 `open` 与退出关服路径已分别验证）。
+- Windows 真机安装 `PodDesk_0.1.1_x64-setup.exe` 后的图形界面复核（确认 ASR 文案仍为 `CPU (AVX2)` / GPU、托盘与关闭缩托盘行为；本机 `npm run tauri:build` 编译打包与单测已通过）；
+- macOS 从 Release 下载的 `.dmg` 经 Gatekeeper 首次打开（本地构建无 quarantine，互联网下载场景未实测）；
+- macOS 托盘右键菜单三项（打开 PodDesk / 打开数据目录 / 退出）的实际点击（自动化环境未授予屏幕录制权限；底层 `open` 与退出关服路径已分别验证）；
+- `website/` 推送 `main` 后 Cloudflare Pages 自动同步与 `https://poddesk.captainxq.me/` 线上双端下载渲染效果。
 
 # 已知技术债
 
-- `package-lock.json` 因此前官方源经代理下载超时而在安装阶段通过直连 `https://registry.npmmirror.com` 生成，内含镜像地址记录；`~/.npmrc` 未修改。
+- `package-lock.json` 内保留 `https://registry.npmmirror.com` 解析地址（实测 `npm install --package-lock-only --registry=https://registry.npmjs.org` 对既有锁定条目不覆盖地址；当前配置可让国内无代理用户直接 `npm ci` 且 GitHub Actions 海外三路 CI 均连续通过，若海外 CI 遇限流再彻底重生成官方源锁文件）；`~/.npmrc` 未修改。
 - `db.rs` 中预留给后续二期统计/展示的 `show_notes`、`set_audio_url`、`log_listen`、`listens_since` 已标记 `#[allow(dead_code)]`，待二期启用时接上路由。
 - 长播客批量翻译仍绑定浏览器页签生命周期（关闭窗口会中断当前批量翻译），暂保留为二期按需下沉 Rust 后台队列的演进边界。
 
 # 下一步
 
-macOS 真机适配与跨平台护栏已合并 `main`；下一步在 Windows 真机复跑基线并安装 NSIS 包，随后按需补充 `release.yml` 做 tag 触发的自动出包，以及按需开启 `main` 分支保护。
+提交并推送本轮配置治理、双端官网与 `release.yml` 至 `main`，等 `CI` 绿灯后推送 `v0.1.1` 标签触发首次云端双端自动打包草稿，验收 `.exe` 与 `.dmg` 后正式 Publish 并核查官网同步。
 
 # 最近完成
+
+- **2026-11-24（跨平台工程治理、AI 自感知运维体系、双端发版 CD 与官网升级 `0.1.1`）**：
+  - 跨平台与版本防呆（[rust-toolchain.toml](rust-toolchain.toml)、[server/Cargo.toml](server/Cargo.toml)、[desktop/Cargo.toml](desktop/Cargo.toml)、`desktop/tauri*.conf.json`、[run-tauri.mjs](scripts/run-tauri.mjs)、[sync-version.mjs](scripts/sync-version.mjs)）：工具链改 `stable` 配合 `rust-version = "1.85"`，修复 Tauri `$schema`，消除 Windows Node `[DEP0190]` 警告并清理废弃 `run-tauri.ps1`，版本同步覆盖含官网在内的 5 处目标并支持 `--tag` 校验；全仓统一升至 `0.1.1`。
+  - 流水线与仓库策略（[ci.yml](.github/workflows/ci.yml)、[release.yml](.github/workflows/release.yml)）：`ci.yml` 增加文档/官网改动 `paths-ignore` 与 `Swatinem/rust-cache@v2`；新增 `release.yml` 支持 `v*.*.*` 标签并行打包 Win `.exe` + Mac `.dmg` 并生成带 `SHA256SUMS.txt` 的 GitHub Release 草稿；开启 GitHub 仓库合并 PR 后自动删分支。
+  - 双端官网与 AI 运维体系（[website/index.html](website/index.html)、[docs/OPERATIONS.md](docs/OPERATIONS.md)、[AGENTS.md](AGENTS.md)）：官网第 5 屏升级 Windows + macOS（Apple Silicon）双下载入口与双端首次放行提示；沉淀唯一运维事实源 `docs/OPERATIONS.md` 并在 `AGENTS.md` 建立强制阅读指针。
+  - 本地验证：Windows 本机 `version:check`、`npm run test`（7 文件 / 27 用例）、`npm run typecheck`、`npm run build`、`cargo test`（54 passed, 1 ignored）、`npm run tauri:build`（`6.05 MiB` `.exe`）与官网内联脚本语法检查全过；云端 `release.yml` 实弹发包与线上官网同步在推送后接续验证。
 
 - **2026-11-24（macOS Apple Silicon 真机适配、DMG 打包与跨平台 CI 护栏）**：
   - 平台文案（[hardware.rs](server/src/asr/hardware.rs)、[AsrSettingsSection.tsx](src/components/settings/AsrSettingsSection.tsx)）：macOS/aarch64 下 `cpu` 变体显示 `Apple Silicon (Metal)`，硬件摘要显示 `Apple M1 · Metal 加速（aarch64）`，推荐回退固定为 `cpu`；Windows/x86_64 分支不变。
@@ -97,7 +104,7 @@ macOS 真机适配与跨平台护栏已合并 `main`；下一步在 Windows 真�
 
 - **2026-11-23（Tauri v2 独立桌面客户端 + NSIS 安装包）**：
   - 后端库化与内嵌资产（[Cargo.toml](server/Cargo.toml)、[lib.rs](server/src/lib.rs)、[main.rs](server/src/main.rs)、[routes/](server/src/routes/mod.rs)）：抽离 `podcast_desk_core` 共享库与 `start_server()`，增加 `rust-embed` 内嵌 `dist/` 回退（保留原 CLI 独立运行能力）。
-  - 桌面薄壳与打包（`desktop/`、[generate-icons.py](scripts/generate-icons.py)、[stage-vcrt.ps1](scripts/stage-vcrt.ps1)、[run-tauri.ps1](scripts/run-tauri.ps1)、[package.json](package.json)）：接入 `Tauri v2`（`tray-icon`）与 `tauri-plugin-single-instance`，实现无黑框启动、窗口点 `×` 缩入右下角托盘继续播放/转写、托盘右键「打开工作台 / 打开数据目录 / 退出」、外链跳系统浏览器、启动自动把安装目录（4 个 VC++ 运行库 DLL）前置进 `PATH` 防干净电脑跑 `CrispASR` 闪退，并配置中文 NSIS 安装向导（`currentUser` 免管理员权限）。
+  - 桌面薄壳与打包（`desktop/`、[generate-icons.py](scripts/generate-icons.py)、[stage-vcrt.ps1](scripts/stage-vcrt.ps1)、已清理的旧 `scripts/run-tauri.ps1`、[package.json](package.json)）：接入 `Tauri v2`（`tray-icon`）与 `tauri-plugin-single-instance`，实现无黑框启动、窗口点 `×` 缩入右下角托盘继续播放/转写、托盘右键「打开工作台 / 打开数据目录 / 退出」、外链跳系统浏览器、启动自动把安装目录（4 个 VC++ 运行库 DLL）前置进 `PATH` 防干净电脑跑 `CrispASR` 闪退，并配置中文 NSIS 安装向导（`currentUser` 免管理员权限）。
   - 数据迁移与验证：无损迁移 `data/` 至 `%LOCALAPPDATA%\podcast-desk`；`npm run tauri:build` 成功产出 `PodDesk_0.1.0_x64-setup.exe`（6.00 MiB），实测独立 exe 启动、内嵌前端、`%LOCALAPPDATA%` 读写与单实例防多开均通过。
 - **2026-11-23（阶段 4：三档本地离线 ASR + CrispASR v0.8.55 硬件探测回退 + 顺手模块拆分）**：
   - 后端重构与拆分（`server/src/asr/` 目录拆为 `catalog.rs` / `hardware.rs` / `engine.rs` / `media.rs` / `ytdlp.rs` / `mod.rs`，移除旧 `asr.rs`；[routes/](server/src/routes/mod.rs)）：落地 `SenseVoice-Small (Q8_0)`（240 MB，FunASR v1.1 署名）、`Qwen3-ASR 0.6B (Q4_K)`（602 MB，非 `imatrix`）与 `Qwen3-ASR 1.7B (Q5_K)`（1.66 GB）三档目录及 Silero VAD（864 KB）；实现 Windows GPU 探测（过滤虚拟显示卡 + `nvidia-smi` 显存校准）、AVX2/ARM64 判定、短样音试跑锁定独显 `-dev`、GPU 失败自动安装回退 `cpu`/`cpu-legacy` 持久化（`asr-runtime.json`），以及下载 HTTP `Range` 断点续传重试，新增 `POST /api/asr/probe`。
