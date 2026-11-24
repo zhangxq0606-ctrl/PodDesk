@@ -1,0 +1,60 @@
+name: 问题反馈（Bug Report）
+description: 报告安装、抓源、离线转写、双语翻译或 AI 问答中的异常
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢参与 PodDesk 内测反馈！请尽量写明复现步骤，**切勿在截图或文本框中贴入 API Key 或 `cookies.txt` 内容**。
+  - type: dropdown
+    id: platform
+    attributes:
+      label: 运行环境
+      options:
+        - Windows x64 安装包 (.exe)
+        - macOS Apple Silicon (.dmg)
+        - 浏览器工作台 / 从源码运行
+        - 其他
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 应用版本
+      placeholder: 例如 v0.2.0（可在软件标题/更新弹窗中查看）
+    validations:
+      required: true
+  - type: dropdown
+    id: module
+    attributes:
+      label: 问题环节
+      options:
+        - 安装 / 首次打开系统放行
+        - 订阅 / 链接解析（YouTube / 小宇宙 / RSS）
+        - 音频 / 视频播放
+        - 官方字幕 / 本机离线转写（CrispASR）
+        - 双语翻译 / 术语表
+        - 导读 / AI Agent 在场感问答
+        - 外观主题 / 界面布局
+        - 其他
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题现象与复现步骤
+      description: 请说明粘贴了什么链接（或导入了什么格式的文件）、点了哪个按钮、实际看到了什么报错。
+      placeholder: |
+        1. 打开 ...
+        2. 粘贴链接 / 点击 ...
+        3. 出现报错：...
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: 补充信息（截图、报错原文或显卡型号，可选）
+      description: 若涉及本机离线转写，可顺带写明芯片/显卡型号；请勿包含密钥或 Cookie 原文。
+    validations:
+      required: false

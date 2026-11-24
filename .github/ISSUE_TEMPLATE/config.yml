@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: PodDesk 官网与放行指引
+    url: https://poddesk.captainxq.me/
+    about: 查看安装包下载、Windows SmartScreen 与 macOS 首次打开放行步骤
+  - name: 已发布版本与更新日志
+    url: https://github.com/zhangxq0606-ctrl/PodDesk/releases
+    about: 检查是否已有新版修复了你遇到的问题

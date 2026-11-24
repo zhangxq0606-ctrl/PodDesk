@@ -1,0 +1,19 @@
+name: 功能建议（Feature Request）
+description: 提出新的来源支持、体验改进或工作流建议
+title: "[建议]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 想解决什么使用场景或痛点？
+      placeholder: 例如：收听某类播客/视频时希望直接导入或导出某种格式……
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: 期望的体验或实现方式（可选）
+      description: 可以补充参考产品或你设想中的交互流程。
+    validations:
+      required: false
