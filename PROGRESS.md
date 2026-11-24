@@ -8,9 +8,15 @@ last_verified: 2026-11-24
 
 # 当前里程碑
 
-阶段 1–4、Tauri v2 Windows/macOS 双端桌面客户端收口、**第一关「架构模块化、性能治理与前端测试护栏」**、**第二关「UI 质感重塑与 8 套三轴主题体系」**、**macOS Apple Silicon 真机适配**及**跨平台 CI/CD 与 AI 自感知运维治理（`v0.1.1`）**均已完成；Windows 本机已通过全量回归并产出 `PodDesk_0.1.1_x64-setup.exe`（`6.05 MiB`），双端官网与标签自动发版流水线已就绪；`README.md` 按船长约定暂留至对外发布前拟写。
+阶段 1–4、Tauri v2 Windows/macOS 双端桌面客户端收口、**第一关「架构模块化、性能治理与前端测试护栏」**、**第二关「UI 质感重塑与 8 套三轴主题体系」**、**macOS Apple Silicon 真机适配**、**跨平台 CI/CD 与 AI 自感知运维治理**及 **`v0.2.0` 反馈体验与版本检测升级**均已本地完成并通过回归；Windows 本机产出 `PodDesk_0.2.0_x64-setup.exe`（`6.09 MiB`），待推送 `main`、跑通三路 `CI` 并触发 `v0.2.0` 双端发版流水线；`README.md` 按船长约定暂留至对外发布前拟写。
 
 # 已验证能力
+
+- **`v0.2.0` 播放风控、全源订阅、原文命名、防闪烁与版本检测升级（2026-11-24，最新实测）**：
+  - 版本与产物校验：`npm run version:sync 0.2.0`、`npm run version:check` 与 `--tag v0.2.0` 校验 5 处版本一致，`.github/workflows/{ci,release}.yml` YAML 校验与 `website/index.html`（含 `xattr` 放行命令与复制按钮）内联脚本语法校验通过；
+  - 前端类型、单测与构建：`npm run typecheck`（`tsc --noEmit`）零错；`npm run test`（Vitest `4.1.12`）通过 **7 个测试文件 / 29 条用例**；`npm run build`（Vite `6.4.6`，**2,194 modules**，CSS `102.70 kB` / JS `521.62 kB`）退出 0；
+  - 后端与桌面端：`cargo test --manifest-path server/Cargo.toml` 零警告通过（**57 passed, 0 failed, 1 ignored**，新增 `update` 半自动版本检查与 `lockupViewModel` / `continuationItemViewModel` 播单解析单测）；`cargo test --manifest-path desktop/Cargo.toml` 通过（**1 passed, 0 failed**，`ytlogin::tests::writes_netscape_jar_and_detects_login`）；`npm run tauri:build` 零警告产出 `PodDesk_0.2.0_x64-setup.exe`（**6.09 MiB**）；
+  - 双端 `v0.1.1` 真机反馈实测（船长）：Windows 安装包实测启动正常；macOS 从 Release 下载 `.dmg` 安装遇 Gatekeeper “已损坏 / 移到废纸篓”，执行 `xattr -dr com.apple.quarantine /Applications/PodDesk.app` 后已验证畅通打开。
 
 - **跨平台工程治理与 `0.1.1` Windows 全量复验（2026-11-24，最新实测）**：
   - 版本与规范护栏：`npm run version:sync 0.1.1` 与 `npm run version:check` / `--tag v0.1.1` 校验 `package.json`、`desktop/tauri.conf.json`、`server/Cargo.toml`、`desktop/Cargo.toml`、`website/index.html` 共 5 处版本一致；[rust-toolchain.toml](rust-toolchain.toml) 改为 `stable`、`Cargo.toml` 声明 `rust-version = "1.85"`，3 份 `desktop/tauri*.conf.json` 修复 `$schema` 为 `config.schema.json`，[run-tauri.mjs](scripts/run-tauri.mjs) 消除 Windows Node `[DEP0190]` 警告并清理废弃 `scripts/run-tauri.ps1`；
@@ -55,10 +61,9 @@ last_verified: 2026-11-24
 - 高配档 `Qwen3-ASR 1.7B (Q5_K)`（1.66 GB）及长音频播客（>30 分钟）的 Silero VAD 切句字幕密度与 `[mm:ss]` 跳转体验；
 - 豆包 / 硅基流动 / DeepSeek 等付费云端 ASR 与需配 Key 云端大模型（如 DeepSeek）/ 其他本机 CLI Agent（如 `Gemini CLI`、`Claude Code`）完整真机实测；
 - 按需粘贴真实 YouTube `cookies.txt` 后绕过 `yt-dlp` 人机验证的真机效果。
-- Windows 真机安装 `PodDesk_0.1.1_x64-setup.exe` 后的图形界面复核（确认 ASR 文案仍为 `CPU (AVX2)` / GPU、托盘与关闭缩托盘行为；本机 `npm run tauri:build` 编译打包与单测已通过）；
-- macOS 从 Release 下载的 `.dmg` 经 Gatekeeper 首次打开（本地构建无 quarantine，互联网下载场景未实测）；
+- Windows/macOS `v0.2.0` 真机功能复核：桌面端应用内 YouTube WebView 登录注入临时 Cookie 绕过 `yt-dlp` 风控、直链解析手动取消、超 12 集 YouTube 播客（如 Dwarkesh）翻页拉取、3 档单集标题显示与侧边栏发现新版 / `UpdateModal` 检查流程；
 - macOS 托盘右键菜单三项（打开 PodDesk / 打开数据目录 / 退出）的实际点击（自动化环境未授予屏幕录制权限；底层 `open` 与退出关服路径已分别验证）；
-- `website/` 推送 `main` 后 Cloudflare Pages 自动同步与 `https://poddesk.captainxq.me/` 线上双端下载渲染效果。
+- 云端 `v0.2.0` 标签触发 `.github/workflows/release.yml` 后双端 Release 草稿（`.exe` / `.dmg` / `SHA256SUMS.txt`）与 `https://poddesk.captainxq.me/` 官网同步效果。
 
 # 已知技术债
 
@@ -68,9 +73,14 @@ last_verified: 2026-11-24
 
 # 下一步
 
-提交并推送本轮配置治理、双端官网与 `release.yml` 至 `main`，等 `CI` 绿灯后推送 `v0.1.1` 标签触发首次云端双端自动打包草稿，验收 `.exe` 与 `.dmg` 后正式 Publish 并核查官网同步。
+提交并推送 `v0.2.0` 全部改动至 `main`，删除未正式发布的 `v0.1.1` Draft 与远端标签；待三路 `CI` 全绿后推送 `v0.2.0` 标签触发双端 Release 草稿打包，核验产物与线上官网同步并汇报船长。
 
 # 最近完成
+
+- **2026-11-24（`v0.2.0` 播放风控、全源导入、原文命名、防闪烁与版本检测升级）**：
+  - YouTube 播放与登录兜底（[VideoStage.tsx](src/components/player/VideoStage.tsx)、[ytdlp.rs](server/src/asr/ytdlp.rs)、[lib.rs](server/src/lib.rs)、[ytlogin.rs](desktop/src/ytlogin.rs)、[NetworkSettingsSection.tsx](src/components/settings/NetworkSettingsSection.tsx)）：切换内嵌域至 `youtube.com`、为直链请求补充取消控制与 `yt-dlp` 风控报错免升级直返；新增桌面应用内 YouTube WebView 登录与 `YtLoginBridge` 临时 Netscape Cookie 注入（用完即删），并完善 `cookies.txt` 文件上传与三步导出引导。
+  - 导读防闪烁、全源解析与原文主显（[ai.ts](src/lib/ai.ts)、[GuidePanel.tsx](src/components/chat/GuidePanel.tsx)、[youtube.rs](server/src/youtube.rs)、[zh.ts](src/lib/zh.ts)、[Sidebar.tsx](src/components/Sidebar.tsx)、[Lists.tsx](src/components/Lists.tsx)、[PlayerPanel.tsx](src/components/PlayerPanel.tsx)、[ReadingSettingsSection.tsx](src/components/settings/ReadingSettingsSection.tsx)）：流式导读未现 `## 章节时间线` 前右侧保持三行骨架屏；补齐 `lockupViewModel` / `continuationItemViewModel` / 紧凑相对时间解析并在 `ShowView` 显式标明小宇宙/RSS 拉取边界；播客/频道名一律显示原名，单集标题提供「中文为主 / 原文为主 / 仅看原文」三档设置。
+  - 应用内版本检测与官网/发版放行指引（[update.rs](server/src/update.rs)、[UpdateModal.tsx](src/components/UpdateModal.tsx)、[website/index.html](website/index.html)、[release.yml](.github/workflows/release.yml)、[OPERATIONS.md](docs/OPERATIONS.md)、[ARCHITECTURE.md](ARCHITECTURE.md)）：新增 `GET /api/app/update`（30 分钟缓存 + 国内镜像 URL）、侧边栏新版胶囊、更新弹窗与官网/Release/弹窗统一的 macOS `xattr` 命令复制引导，全仓版本同步至 `0.2.0` 并通过全栈回归与 `tauri:build`。
 
 - **2026-11-24（跨平台工程治理、AI 自感知运维体系、双端发版 CD 与官网升级 `0.1.1`）**：
   - 跨平台与版本防呆（[rust-toolchain.toml](rust-toolchain.toml)、[server/Cargo.toml](server/Cargo.toml)、[desktop/Cargo.toml](desktop/Cargo.toml)、`desktop/tauri*.conf.json`、[run-tauri.mjs](scripts/run-tauri.mjs)、[sync-version.mjs](scripts/sync-version.mjs)）：工具链改 `stable` 配合 `rust-version = "1.85"`，修复 Tauri `$schema`，消除 Windows Node `[DEP0190]` 警告并清理废弃 `run-tauri.ps1`，版本同步覆盖含官网在内的 5 处目标并支持 `--tag` 校验；全仓统一升至 `0.1.1`。

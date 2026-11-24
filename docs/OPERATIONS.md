@@ -58,7 +58,7 @@
 
 ## 四、现阶段「有意不做」的边界
 
-- **商业代码签名与 Apple 公证（$99/年）**：内测与早期开源阶段暂不购买；依赖 Release 说明与官网折叠指引向用户提供 Windows SmartScreen（「更多信息 → 仍要运行」）与 macOS Gatekeeper（「系统设置 › 隐私与安全性 → 仍要打开」）放行步骤。
+- **商业代码签名与 Apple 公证（$99/年）**：内测与早期开源阶段暂不购买；依赖 Release 说明、应用内更新弹窗与官网折叠指引向用户提供 Windows SmartScreen（「更多信息 → 仍要运行」）与 macOS Gatekeeper（「终端」执行 `xattr -dr com.apple.quarantine /Applications/PodDesk.app` 解除“已损坏”拦截）放行步骤。
 - **应用内自动热更新（Tauri Updater）**：暂不接入，版本更新通过 GitHub Releases 与官网手动下载完成。
 - **macOS Intel（`x86_64`）官方安装包**：当前聚焦 Windows x64 与 macOS Apple Silicon（arm64）；Intel Mac 用户暂按源码自行构建。
 
