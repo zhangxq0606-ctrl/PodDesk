@@ -271,6 +271,14 @@ fn bot_check(msg: &str) -> bool {
     (m.contains("confirm you") && m.contains("bot")) || m.contains("sign in to confirm")
 }
 
+struct TempCookieFile(PathBuf);
+
+impl Drop for TempCookieFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
 fn write_temp_cookie_file(jar: &str) -> Result<PathBuf> {
     let path = std::env::temp_dir().join(format!("poddesk-yt-{}.txt", uuid::Uuid::new_v4()));
     #[cfg(unix)]
@@ -304,13 +312,13 @@ where
                     if let Some(bridge) = &yt_login {
                         let b = bridge.clone();
                         if let Ok(Some(jar)) = tokio::task::spawn_blocking(move || b.export_cookie_jar()).await {
-                            let tmp_cookie = write_temp_cookie_file(&jar)?;
+                            let tmp_cookie = TempCookieFile(write_temp_cookie_file(&jar)?);
                             let cookie_args = vec![
                                 "--cookies".into(),
-                                tmp_cookie.to_string_lossy().into_owned(),
+                                tmp_cookie.0.to_string_lossy().into_owned(),
                             ];
                             let res = job(cookie_args).await;
-                            let _ = std::fs::remove_file(&tmp_cookie);
+                            drop(tmp_cookie);
                             return res.map_err(|e3| {
                                 if bot_check(&e3.to_string()) {
                                     anyhow!("YouTube 仍然要求验证，请点击「登录 YouTube」重新确认账号登录，或在设置中导入 cookies.txt")
@@ -562,5 +570,14 @@ mod cookies_tests {
         assert!(!save_cookies(&dir, "   ").unwrap());
         assert!(!has_cookies(&dir));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn temp_cookie_file_is_removed_on_drop() {
+        let path = write_temp_cookie_file("# Netscape HTTP Cookie File\n.youtube.com\tTRUE\n").unwrap();
+        assert!(path.is_file());
+        let guard = TempCookieFile(path.clone());
+        drop(guard);
+        assert!(!path.exists());
     }
 }

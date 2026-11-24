@@ -15,7 +15,7 @@ last_verified: 2026-11-24
 - **`v0.2.0` 播放风控、全源订阅、原文命名、防闪烁与版本检测升级（2026-11-24，最新实测）**：
   - 版本与产物校验：`npm run version:sync 0.2.0`、`npm run version:check` 与 `--tag v0.2.0` 校验 5 处版本一致，`.github/workflows/{ci,release}.yml` YAML 校验与 `website/index.html`（含 `xattr` 放行命令与复制按钮）内联脚本语法校验通过；
   - 前端类型、单测与构建：`npm run typecheck`（`tsc --noEmit`）零错；`npm run test`（Vitest `4.1.12`）通过 **7 个测试文件 / 29 条用例**；`npm run build`（Vite `6.4.6`，**2,194 modules**，CSS `102.70 kB` / JS `521.62 kB`）退出 0；
-  - 后端与桌面端：`cargo test --manifest-path server/Cargo.toml` 零警告通过（**57 passed, 0 failed, 1 ignored**，新增 `update` 半自动版本检查与 `lockupViewModel` / `continuationItemViewModel` 播单解析单测）；`cargo test --manifest-path desktop/Cargo.toml` 通过（**1 passed, 0 failed**，`ytlogin::tests::writes_netscape_jar_and_detects_login`）；`npm run tauri:build` 零警告产出 `PodDesk_0.2.0_x64-setup.exe`（**6.09 MiB**）；
+  - 后端与桌面端：`cargo test --manifest-path server/Cargo.toml` 零警告通过（**58 passed, 0 failed, 1 ignored**，新增 `update` 半自动版本检查、`temp_cookie_file_is_removed_on_drop` 与 `lockupViewModel` / `continuationItemViewModel` 播单解析单测）；`cargo test --manifest-path desktop/Cargo.toml` 通过（**1 passed, 0 failed**，`ytlogin::tests::writes_netscape_jar_and_detects_login`）；`npm run tauri:build` 零警告产出 `PodDesk_0.2.0_x64-setup.exe`（**6.09 MiB**）；
   - 双端 `v0.1.1` 真机反馈实测（船长）：Windows 安装包实测启动正常；macOS 从 Release 下载 `.dmg` 安装遇 Gatekeeper “已损坏 / 移到废纸篓”，执行 `xattr -dr com.apple.quarantine /Applications/PodDesk.app` 后已验证畅通打开。
 
 - **跨平台工程治理与 `0.1.1` Windows 全量复验（2026-11-24，最新实测）**：
