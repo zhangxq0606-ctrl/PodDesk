@@ -1,5 +1,6 @@
+import { ArrowDownToLine, Loader2, RefreshCw } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
-import { useStore } from "../../store";
+import { useStore, type TitleDisplayMode } from "../../store";
 
 const SHORTCUTS: [string, string][] = [
   ["Space", "播放 / 暂停"],
@@ -13,14 +14,49 @@ const SHORTCUTS: [string, string][] = [
   ["Ctrl + \\", "展开 / 收起右侧栏"],
 ];
 
+const TITLE_MODES: [TitleDisplayMode, string][] = [
+  ["zh-first", "中文为主"],
+  ["orig-first", "英文为主"],
+  ["orig-only", "仅原文"],
+];
+
 export function ReadingSettingsSection() {
-  const { audioNextLine, autoTranslateTitles, savePrefs } = useStore(
+  const {
+    audioNextLine,
+    titleDisplayMode,
+    savePrefs,
+    health,
+    updateInfo,
+    checkingUpdate,
+    checkUpdate,
+    setUpdateModalOpen,
+    notify,
+  } = useStore(
     useShallow((s) => ({
       audioNextLine: s.prefs.audioNextLine,
-      autoTranslateTitles: s.prefs.autoTranslateTitles,
+      titleDisplayMode: s.prefs.titleDisplayMode,
       savePrefs: s.savePrefs,
+      health: s.health,
+      updateInfo: s.updateInfo,
+      checkingUpdate: s.checkingUpdate,
+      checkUpdate: s.checkUpdate,
+      setUpdateModalOpen: s.setUpdateModalOpen,
+      notify: s.notify,
     })),
   );
+
+  const handleManualCheck = async () => {
+    const info = await checkUpdate(true);
+    if (!info) {
+      notify("检查更新失败，请检查本机网络或代理设置", false);
+      return;
+    }
+    if (info.hasUpdate) {
+      setUpdateModalOpen(true);
+    } else {
+      notify(`当前已是最新版本（v${info.currentVersion}）`);
+    }
+  };
 
   return (
     <>
@@ -34,14 +70,28 @@ export function ReadingSettingsSection() {
           />
           <span>纯音频舞台提前预告下一句字幕</span>
         </label>
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={autoTranslateTitles}
-            onChange={(e) => savePrefs({ autoTranslateTitles: e.target.checked })}
-          />
-          <span>自动翻译外文标题与频道简介（双语对照，结果本地缓存）</span>
-        </label>
+
+        <div className="title-mode-row">
+          <div className="title-mode-meta">
+            <span className="title-mode-label">外文单集标题显示</span>
+            <span className="muted small">播客与频道名称始终保持原名，仅频道简介自动辅助译为中文</span>
+          </div>
+          <div className="seg-control" role="radiogroup" aria-label="外文单集标题显示">
+            {TITLE_MODES.map(([mode, label]) => (
+              <button
+                key={mode}
+                type="button"
+                role="radio"
+                aria-checked={titleDisplayMode === mode}
+                className={titleDisplayMode === mode ? "on" : ""}
+                onClick={() => savePrefs({ titleDisplayMode: mode })}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <p className="muted small">
           主题风格与字幕/问答字号已移至左侧「外观」页签统一调整。
         </p>
@@ -56,6 +106,30 @@ export function ReadingSettingsSection() {
               <span>{desc}</span>
             </div>
           ))}
+        </div>
+      </section>
+
+      <section className="setup-block">
+        <div className="row-between">
+          <div>
+            <p className="setup-title">关于与版本更新</p>
+            <p className="muted small">
+              当前版本：<code>v{health?.version ?? "0.2.0"}</code>
+              {updateInfo && !updateInfo.hasUpdate ? `（已是最新，最近检查 v${updateInfo.latestVersion}）` : ""}
+              {updateInfo?.hasUpdate ? ` · 发现新版本 v${updateInfo.latestVersion}` : ""}
+            </p>
+          </div>
+          <div className="row-actions">
+            {updateInfo?.hasUpdate && (
+              <button type="button" className="btn sm primary" onClick={() => setUpdateModalOpen(true)}>
+                <ArrowDownToLine size={13} /> 查看新版 v{updateInfo.latestVersion}
+              </button>
+            )}
+            <button type="button" className="btn sm" onClick={() => void handleManualCheck()} disabled={checkingUpdate}>
+              {checkingUpdate ? <Loader2 size={13} className="spin" /> : <RefreshCw size={13} />}
+              <span>{checkingUpdate ? "检查中..." : "检查更新"}</span>
+            </button>
+          </div>
         </div>
       </section>
     </>

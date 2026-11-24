@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { create } from "zustand";
-import { useStore } from "../store";
+import { useStore, type TitleDisplayMode } from "../store";
 import { api } from "./api";
 
 const CJK_RE = /[\u4e00-\u9fff]/g;
@@ -110,6 +110,25 @@ export function useShowTitleZh(title: string | undefined | null): string | undef
   const zh = useTitleZh(title);
   if (!zh || isPureTransliteration(zh)) return undefined;
   return zh;
+}
+
+/** Resolves primary/secondary display lines for an episode title according to user preference. */
+export function resolveEpisodeTitleDisplay(
+  title: string,
+  zh: string | undefined,
+  mode: TitleDisplayMode,
+): { primary: string; secondary?: string } {
+  if (!zh || mode === "orig-only") return { primary: title };
+  if (mode === "orig-first") return { primary: title, secondary: zh };
+  return { primary: zh, secondary: title };
+}
+
+/** Lazily translates foreign episode titles and orders primary/secondary text per titleDisplayMode. */
+export function useEpisodeTitleDisplay(text: string | undefined | null): { primary: string; secondary?: string } {
+  const mode = useStore((s) => s.prefs.titleDisplayMode);
+  const raw = text ?? "";
+  const zh = useTitleZh(raw, mode !== "orig-only");
+  return resolveEpisodeTitleDisplay(raw, zh, mode);
 }
 
 /** Synchronous cache lookup for client-side search filtering. */

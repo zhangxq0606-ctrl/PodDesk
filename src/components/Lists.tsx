@@ -22,7 +22,7 @@ import { ask } from "../lib/confirm";
 import { clock, formatDate, formatDuration, groupLabel, notesText } from "../lib/format";
 import { clearEpisodeJobs } from "../lib/jobs";
 import { isEpisodeDone, pickContinueHero } from "../lib/recent";
-import { getCachedTitleZh, useShowTitleZh, useTitleZh } from "../lib/zh";
+import { getCachedTitleZh, useEpisodeTitleDisplay, useTitleZh } from "../lib/zh";
 import { useStore } from "../store";
 import { DeskArt, EqBars, SkeletonFeed } from "./Illustrations";
 import { MonthFilter, useMonthFilter } from "./MonthFilter";
@@ -58,8 +58,7 @@ const EpisodeRow = memo(function EpisodeRow({
   const openEpisode = useStore((s) => s.openEpisode);
   const toggleEpisodeCompleted = useStore((s) => s.toggleEpisodeCompleted);
   const isPlaying = useStore((s) => s.playing && s.current?.id === ep.id);
-  const titleZh = useTitleZh(ep.title);
-  const showTitleZh = useShowTitleZh(showShow ? ep.showTitle : undefined);
+  const titleDisplay = useEpisodeTitleDisplay(ep.title);
   const done = isEpisodeDone(ep);
   const pct = done && ep.duration ? 100 : ep.duration && ep.progress > 5 ? Math.min(100, (ep.progress / ep.duration) * 100) : 0;
   const remainMins = !done && ep.duration && pct > 0 ? Math.max(1, Math.round((ep.duration - ep.progress) / 60)) : 0;
@@ -111,9 +110,8 @@ const EpisodeRow = memo(function EpisodeRow({
       <div className="ep-body-col">
         <p className="ep-kicker">
           {showShow && (
-            <span className="show-name" title={showTitleZh && ep.showTitle ? ep.showTitle : undefined}>
-              {showTitleZh ??
-                (ep.showTitle || (ep.videoId ? "YouTube 单集" : ep.audioUrl ? "本地/单集音频" : "导入文稿"))}
+            <span className="show-name">
+              {ep.showTitle || (ep.videoId ? "YouTube 单集" : ep.audioUrl ? "本地/单集音频" : "导入文稿")}
             </span>
           )}
           {dateMs ? <span>{formatDate(dateMs)}</span> : null}
@@ -121,9 +119,9 @@ const EpisodeRow = memo(function EpisodeRow({
         </p>
         <p className="ep-title2">
           {isPlaying && <EqBars className="inline-eq" />}
-          <span>{titleZh ?? ep.title}</span>
+          <span>{titleDisplay.primary}</span>
         </p>
-        {titleZh && <p className="ep-title-orig clamp1">{ep.title}</p>}
+        {titleDisplay.secondary && <p className="ep-title-orig clamp1">{titleDisplay.secondary}</p>}
         {(ep.hasTranscript || ep.transcriptUrl || ep.videoId || remainMins > 0 || done) && (
           <p className="ep-tags">
             {ep.hasTranscript ? (
@@ -172,8 +170,7 @@ const EpisodeRow = memo(function EpisodeRow({
 
 function ShowTile({ show }: { show: Show }) {
   const go = useStore((s) => s.go);
-  const titleZh = useShowTitleZh(show.title);
-  const subText = titleZh ? show.title : show.author && show.author !== show.title ? show.author : null;
+  const subText = show.author && show.author !== show.title ? show.author : null;
   return (
     <div
       className="show-tile"
@@ -191,7 +188,7 @@ function ShowTile({ show }: { show: Show }) {
           <div className="cover-fallback">{show.title.slice(0, 1).toUpperCase()}</div>
         )}
       </div>
-      <p className="tile-name clamp1">{titleZh ?? show.title}</p>
+      <p className="tile-name clamp1">{show.title}</p>
       {subText && <p className="tile-sub clamp1">{subText}</p>}
     </div>
   );
@@ -246,8 +243,7 @@ function ContinueHero({ ep }: { ep: Episode }) {
     useShallow((s) => ({ openEpisode: s.openEpisode, load: s.load, playSoon: s.playSoon })),
   );
   const liveSec = useStore((s) => (s.current?.id === ep.id ? Math.floor(s.time) : null));
-  const titleZh = useTitleZh(ep.title);
-  const showTitleZh = useShowTitleZh(ep.showTitle);
+  const titleDisplay = useEpisodeTitleDisplay(ep.title);
   const progress = liveSec != null && liveSec > 0 ? liveSec : ep.progress;
   const coverSrc = cleanCoverUrl(ep);
   const pct = ep.duration ? Math.min(100, (progress / ep.duration) * 100) : 0;
@@ -290,12 +286,10 @@ function ContinueHero({ ep }: { ep: Episode }) {
       <div className="hero-meta">
         <p className="meta-line">
           <span>{ep.videoId ? "继续观看" : "继续收听"}</span>
-          {ep.showTitle && ep.showId !== "single" ? (
-            <span title={showTitleZh ? ep.showTitle : undefined}>· {showTitleZh ?? ep.showTitle}</span>
-          ) : null}
+          {ep.showTitle && ep.showId !== "single" ? <span>· {ep.showTitle}</span> : null}
         </p>
-        <p className="hero-title">{titleZh ?? ep.title}</p>
-        {titleZh && <p className="title-orig-sub clamp1">{ep.title}</p>}
+        <p className="hero-title">{titleDisplay.primary}</p>
+        {titleDisplay.secondary && <p className="title-orig-sub clamp1">{titleDisplay.secondary}</p>}
         <div className="hero-foot">
           <span className="btn sm primary hero-play" aria-hidden>
             <Play size={13} fill="currentColor" />
@@ -595,7 +589,6 @@ export function ShowView({ id }: { id: string }) {
 
   const show = shows.find((s) => s.id === id);
   const cleanDesc = useMemo(() => notesText(show?.description), [show?.description]);
-  const showTitleZh = useShowTitleZh(show?.title);
   const descZh = useTitleZh(cleanDesc ? cleanDesc.slice(0, 600) : undefined);
 
   const episodes = showEpisodes[id];
@@ -737,8 +730,7 @@ export function ShowView({ id }: { id: string }) {
               <span>{kindLabel}</span>
               {show.author && show.author !== show.title ? <span>· {show.author}</span> : null}
             </p>
-            <h1 className="show-title-h">{showTitleZh ?? show.title}</h1>
-            {showTitleZh && <p className="ep-title-orig">{show.title}</p>}
+            <h1 className="show-title-h">{show.title}</h1>
             {shownDesc && (
               <div>
                 <p className={`show-desc ${descExpanded ? "" : "clamp3"}`}>{shownDesc}</p>
@@ -851,6 +843,18 @@ export function ShowView({ id }: { id: string }) {
             ) : (
               <span className="muted small">已加载全部 {episodes.length} 集</span>
             )}
+          </div>
+        )}
+        {show.kind === "xiaoyuzhou" && episodes && episodes.length > 0 && (
+          <div className="load-more-bar">
+            <span className="muted small">
+              已加载小宇宙网页端公开的最近 {episodes.length} 集；如需更早单集，可直接粘贴单集链接导入
+            </span>
+          </div>
+        )}
+        {show.kind === "podcast" && episodes && episodes.length >= 300 && (
+          <div className="load-more-bar">
+            <span className="muted small">RSS 订阅单次最多导入最新 300 集</span>
           </div>
         )}
       </div>

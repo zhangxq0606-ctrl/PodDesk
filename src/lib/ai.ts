@@ -92,6 +92,10 @@ export interface ParsedGuide {
   timelineRaw: string;
 }
 
+export function hasTimelineHeading(md: string): boolean {
+  return /^##\s+.*(?:时间线|章节)/m.test(md.replace(/\r\n/g, "\n"));
+}
+
 export function parseGuideMarkdown(md: string): ParsedGuide {
   if (!md.trim()) return { overviewMd: "", timeline: [], timelineRaw: "" };
 
@@ -150,12 +154,13 @@ export function parseGuideMarkdown(md: string): ParsedGuide {
         title = boldOnly[1].trim();
         body = boldOnly[2].replace(/^[：:—–-]\s*/, "").trim();
       } else {
-        const splitColon = rest.match(/^([^：:]{2,40})[：:]\s*(.+)$/);
+        const cleanRest = rest.startsWith("**") ? rest.slice(2).trim() : rest;
+        const splitColon = cleanRest.match(/^([^：:]{2,40})[：:]\s*(.+)$/);
         if (splitColon) {
           title = splitColon[1].trim();
           body = splitColon[2].trim();
         } else {
-          title = rest;
+          title = cleanRest;
         }
       }
     }

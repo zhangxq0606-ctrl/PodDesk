@@ -8,6 +8,7 @@ import { SelectionTools } from "./components/SelectionTools";
 import { SettingsModal } from "./components/SettingsModal";
 import { ImportModal, MiniPlayer, Sidebar, Toast, TopBar } from "./components/Sidebar";
 import { Splitter } from "./components/Splitter";
+import { UpdateModal } from "./components/UpdateModal";
 import { api } from "./lib/api";
 import { ask } from "./lib/confirm";
 import { SIDEBAR, triggerSidebarAnim, useLayout } from "./lib/layout";
@@ -311,6 +312,7 @@ function AppShell() {
       <AudioEngine />
       <SelectionTools />
       <SettingsModal />
+      <UpdateModal />
       <ImportModal />
       <ConfirmHost />
       <Toast />

@@ -26,7 +26,8 @@ import { clock } from "../lib/format";
 import { useJobs } from "../lib/jobs";
 import { triggerSidebarAnim, useLayout } from "../lib/layout";
 import { getDarkThemeMeta, getLightThemeMeta, resolveEffectiveMode } from "../lib/themes";
-import { useShowTitleZh, useTitleZh } from "../lib/zh";
+import { ArrowDownToLine } from "lucide-react";
+import { useEpisodeTitleDisplay } from "../lib/zh";
 import { useStore, type View } from "../store";
 import { BrandMark } from "./Illustrations";
 import { isVideoMediaUrl } from "./Players";
@@ -85,7 +86,6 @@ const SidebarShowItem = memo(function SidebarShowItem({
   active: boolean;
   onSelect: () => void;
 }) {
-  const zh = useShowTitleZh(s.title);
   return (
     <button type="button" className={`show-item ${active ? "on" : ""}`} onClick={onSelect} title={s.title}>
       <span className="show-cover">
@@ -96,7 +96,7 @@ const SidebarShowItem = memo(function SidebarShowItem({
         )}
       </span>
       <span className="show-names">
-        <span className="show-title">{zh ?? s.title}</span>
+        <span className="show-title">{s.title}</span>
       </span>
       {s.unplayed > 0 && <span className="fresh-dot" title="近 7 天有新更新" aria-label="近 7 天有新更新" />}
     </button>
@@ -104,13 +104,15 @@ const SidebarShowItem = memo(function SidebarShowItem({
 });
 
 export function Sidebar({ isDrawer }: { isDrawer: boolean }) {
-  const { shows, view, go, openSettings, setImportOpen } = useStore(
+  const { shows, view, go, openSettings, setImportOpen, updateInfo, setUpdateModalOpen } = useStore(
     useShallow((s) => ({
       shows: s.shows,
       view: s.view,
       go: s.go,
       openSettings: s.openSettings,
       setImportOpen: s.setImportOpen,
+      updateInfo: s.updateInfo,
+      setUpdateModalOpen: s.setUpdateModalOpen,
     })),
   );
   const { sideDrawerOpen, put } = useLayout(
@@ -209,6 +211,21 @@ export function Sidebar({ isDrawer }: { isDrawer: boolean }) {
       <TaskChip />
 
       <div className="side-foot">
+        {updateInfo?.hasUpdate && (
+          <button
+            type="button"
+            className="nav update-pill"
+            onClick={() => {
+              closeDrawer();
+              setUpdateModalOpen(true);
+            }}
+            title={`发现新版本 v${updateInfo.latestVersion}，点击查看更新说明`}
+          >
+            <ArrowDownToLine size={15} />
+            <span className="label">发现新版本 v{updateInfo.latestVersion}</span>
+            <span className="update-dot" aria-hidden="true" />
+          </button>
+        )}
         <button
           type="button"
           className="nav settings-btn"
@@ -532,8 +549,7 @@ export function MiniPlayer() {
     })),
   );
   const { sideOpen, sidebar } = useLayout(useShallow((l) => ({ sideOpen: l.sideOpen, sidebar: l.sidebar })));
-  const titleZh = useTitleZh(current?.title);
-  const showZh = useShowTitleZh(current?.showTitle);
+  const titleDisplay = useEpisodeTitleDisplay(current?.title);
   const [backTick, setBackTick] = useState(0);
   const [fwdTick, setFwdTick] = useState(0);
 
@@ -543,7 +559,7 @@ export function MiniPlayer() {
 
   const offsetLeft = view.kind !== "episode" && sideOpen ? sidebar : 0;
   const pct = length > 0 ? Math.min(100, (time / length) * 100) : 0;
-  const shownShow = showZh ?? current.showTitle;
+  const shownShow = current.showTitle;
   const showLabel = shownShow && current.showId !== "single" ? `${shownShow} · ` : "";
   const timeLabel = `${clock(time)}${length > 0 ? ` / ${clock(length)}` : ""}`;
 
@@ -576,7 +592,9 @@ export function MiniPlayer() {
           )}
         </span>
         <span className="mini-text">
-          <span className="ep-name clamp1">{titleZh ?? current.title}</span>
+          <span className="ep-name clamp1" title={titleDisplay.secondary ?? undefined}>
+            {titleDisplay.primary}
+          </span>
           <span className="meta-line clamp1">{`${showLabel}${timeLabel}`}</span>
         </span>
       </div>

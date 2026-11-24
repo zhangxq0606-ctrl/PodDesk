@@ -340,7 +340,8 @@ body.resizing .splitter::after {
 
 .side-foot {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
   gap: 4px;
   margin-top: 8px;
   padding-top: 8px;
@@ -348,7 +349,27 @@ body.resizing .splitter::after {
 }
 
 .side-foot .settings-btn {
-  flex: 1;
+  width: 100%;
+}
+
+.side-foot .update-pill {
+  width: 100%;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+.side-foot .update-pill:hover {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.side-foot .update-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  margin-left: auto;
+  flex: none;
 }
 
 /* ---- main & topbar ---- */

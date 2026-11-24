@@ -126,37 +126,70 @@ export function LocalVideoStage({ ep, src, onFail }: { ep: Episode; src: string;
 export function YouTubeStage({ ep }: { ep: Episode }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<YTPlayerInstance | null>(null);
+  const directAbortRef = useRef<AbortController | null>(null);
   const rate = useStore((s) => s.prefs.playbackRate);
   const volume = useStore((s) => s.prefs.volume);
   const muted = useStore((s) => s.prefs.muted);
+  const health = useStore((s) => s.health);
   const openSettings = useStore((s) => s.openSettings);
+  const notify = useStore((s) => s.notify);
 
   const [fallbackUrl, setFallbackUrl] = useState<string | null>(null);
   const [loadingStream, setLoadingStream] = useState(false);
   const [errMsg, setErrMsg] = useState<string | null>(null);
+  const errRef = useRef<string | null>(null);
+  errRef.current = errMsg;
 
   const fetchDirect = async (fresh = false) => {
     if (loadingStream) return;
+    directAbortRef.current?.abort();
+    const ctrl = new AbortController();
+    directAbortRef.current = ctrl;
     setLoadingStream(true);
     setErrMsg(null);
     try {
-      const res = await api.getStreamUrl(ep.id, fresh);
+      const res = await api.getStreamUrl(ep.id, fresh, ctrl.signal);
+      if (ctrl.signal.aborted) return;
       playerRef.current?.destroy();
       playerRef.current = null;
       setFallbackUrl(res.url);
     } catch (err) {
-      setErrMsg(err instanceof Error ? err.message : "获取直链失败");
+      if ((err instanceof DOMException && err.name === "AbortError") || ctrl.signal.aborted) {
+        setErrMsg("已取消获取直链，可重试或前往 YouTube 打开。");
+      } else {
+        setErrMsg(err instanceof Error ? err.message : "获取直链失败");
+      }
     } finally {
+      if (directAbortRef.current === ctrl) directAbortRef.current = null;
       setLoadingStream(false);
     }
   };
 
+  const cancelDirect = () => {
+    directAbortRef.current?.abort();
+    setLoadingStream(false);
+    setErrMsg("已取消获取直链，可重试或前往 YouTube 打开。");
+  };
+
   useEffect(() => {
+    const onLoginChanged = () => {
+      if (errRef.current && /bot|人机|验证|sign in|cookies|登录 YouTube/i.test(errRef.current)) {
+        void fetchDirect(true);
+      }
+    };
+    window.addEventListener("poddesk:yt-login-changed", onLoginChanged);
+    return () => window.removeEventListener("poddesk:yt-login-changed", onLoginChanged);
+  });
+
+  useEffect(() => {
+    directAbortRef.current?.abort();
     setFallbackUrl(null);
     setErrMsg(null);
     if (wasYtBlocked(ep.videoId)) {
       void fetchDirect(false);
-      return;
+      return () => {
+        directAbortRef.current?.abort();
+      };
     }
 
     let disposed = false;
@@ -179,7 +212,7 @@ export function YouTubeStage({ ep }: { ep: Episode }) {
         hostRef.current.appendChild(mount);
         const startAt = Math.floor(ep.progress > 3 ? ep.progress : 0);
         const player = new YT.Player(mount, {
-          host: "https://www.youtube-nocookie.com",
+          host: "https://www.youtube.com",
           videoId: ep.videoId!,
           width: "100%",
           height: "100%",
@@ -266,6 +299,7 @@ export function YouTubeStage({ ep }: { ep: Episode }) {
 
     return () => {
       disposed = true;
+      directAbortRef.current?.abort();
       window.clearInterval(pollTimer);
       try {
         const curT = playerRef.current?.getCurrentTime?.();
@@ -305,18 +339,40 @@ export function YouTubeStage({ ep }: { ep: Episode }) {
   }
 
   if (loadingStream || errMsg) {
-    const isBot = errMsg ? /bot|人机|验证|sign in|cookies/i.test(errMsg) : false;
+    const isBot = errMsg ? /bot|人机|验证|sign in|cookies|登录 YouTube/i.test(errMsg) : false;
     return (
       <div className="video-fallback-box">
         {loadingStream ? (
-          <p className="muted row-tight">
-            <Loader2 size={15} className="spin" /> 正在通过 yt-dlp 解析可播放视频直链...
-          </p>
+          <div className="row-between" style={{ gap: 12, flexWrap: "wrap" }}>
+            <p className="muted row-tight">
+              <Loader2 size={15} className="spin" /> 嵌入播放受限，正在通过 yt-dlp 解析可播放直链（需走本机代理）...
+            </p>
+            <button type="button" className="btn sm" onClick={cancelDirect}>
+              取消
+            </button>
+          </div>
         ) : (
           <>
             <p className="error-text">{errMsg}</p>
             <div className="row-actions" style={{ marginTop: 10 }}>
-              <button type="button" className="btn sm primary" onClick={() => void fetchDirect(true)}>
+              {isBot && health?.ytLoginSupported && (
+                <button
+                  type="button"
+                  className="btn sm primary"
+                  onClick={() => {
+                    void api.openYouTubeLogin().catch((err) => {
+                      notify(err instanceof Error ? err.message : "打开登录窗口失败", false);
+                    });
+                  }}
+                >
+                  登录 YouTube
+                </button>
+              )}
+              <button
+                type="button"
+                className={isBot && health?.ytLoginSupported ? "btn sm" : "btn sm primary"}
+                onClick={() => void fetchDirect(true)}
+              >
                 <Tv size={14} /> 切换直链播放 (yt-dlp)
               </button>
               {isBot && (

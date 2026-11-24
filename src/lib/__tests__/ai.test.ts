@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { batches, clock, isMostlyChinese, parseGuideMarkdown, parseTimestamp, pieces, salvage } from "../ai";
+import { batches, clock, hasTimelineHeading, isMostlyChinese, parseGuideMarkdown, parseTimestamp, pieces, salvage } from "../ai";
 import type { Segment } from "../api";
 
 describe("ai utilities", () => {
@@ -37,6 +37,19 @@ describe("ai utilities", () => {
       { sec: 330, stamp: "05:30", title: "扩展讨论", body: "工具链演化" },
     ]);
     expect(parseGuideMarkdown("   ")).toEqual({ overviewMd: "", timeline: [], timelineRaw: "" });
+  });
+
+  it("handles partial streaming guide markdown cleanly before timeline completion", () => {
+    const partialNoTimeline = "## 一句话总结\n嘉宾剖析了推理算力经济学。\n\n## 核心要点\n- **推理成本下降**：";
+    expect(hasTimelineHeading(partialNoTimeline)).toBe(false);
+    const p1 = parseGuideMarkdown(partialNoTimeline);
+    expect(p1.timeline).toEqual([]);
+    expect(p1.overviewMd).toContain("嘉宾剖析了推理算力经济学");
+
+    const partialUnclosedBold = `${partialNoTimeline}\n\n## 章节时间线\n- [01:20] **模型规模与效`;
+    expect(hasTimelineHeading(partialUnclosedBold)).toBe(true);
+    const p2 = parseGuideMarkdown(partialUnclosedBold);
+    expect(p2.timeline).toEqual([{ sec: 80, stamp: "01:20", title: "模型规模与效", body: "" }]);
   });
 
   it("splits English and Chinese text cleanly into reading-sized pieces", () => {

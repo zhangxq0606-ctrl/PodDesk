@@ -737,3 +737,60 @@
   }
 }
 
+
+
+/* ---- cookie guide & title display mode ---- */
+.cookie-guide {
+  margin: 6px 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  padding: 6px 10px;
+}
+
+.cookie-guide summary {
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-2);
+  user-select: none;
+}
+
+.cookie-guide-steps {
+  margin: 8px 0 4px;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--text-2);
+}
+
+.cookie-guide-steps code {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--surface-card);
+  border: 1px solid var(--line);
+}
+
+.title-mode-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--line);
+}
+
+.title-mode-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.title-mode-label {
+  font-size: 13px;
+  font-weight: 500;
+}

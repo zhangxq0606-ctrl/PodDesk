@@ -9,6 +9,25 @@ export interface HealthInfo {
   effectiveProxy: string;
   githubMirror?: string;
   activeJobs?: number;
+  ytLoginSupported?: boolean;
+}
+
+export interface UpdateInfo {
+  currentVersion: string;
+  latestVersion: string;
+  hasUpdate: boolean;
+  tagName: string;
+  title: string;
+  notes: string;
+  publishedAt?: string | null;
+  prerelease: boolean;
+  releaseUrl: string;
+  downloadUrl: string;
+  mirrorDownloadUrl?: string | null;
+  assetName?: string | null;
+  assetSize?: number | null;
+  platform: string;
+  checkedAt: number;
 }
 
 export interface Show {
@@ -443,8 +462,11 @@ export const api = {
     if (!result) throw new Error("未收到转写结果");
     return result;
   },
-  getStreamUrl: (episodeId: string, fresh = false) =>
-    requestJson<{ url: string }>(`/api/episodes/${encodeURIComponent(episodeId)}/stream-url?fresh=${fresh ? "true" : "false"}`),
+  getStreamUrl: (episodeId: string, fresh = false, signal?: AbortSignal) =>
+    requestJson<{ url: string }>(
+      `/api/episodes/${encodeURIComponent(episodeId)}/stream-url?fresh=${fresh ? "true" : "false"}`,
+      signal ? { signal } : undefined,
+    ),
   getCookiesStatus: () => requestJson<{ hasCookies: boolean }>("/api/cookies"),
   saveCookies: (text: string) =>
     requestJson<{ ok: boolean; hasCookies: boolean }>("/api/cookies", {
@@ -452,6 +474,11 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text }),
     }),
+  getYouTubeAuth: () => requestJson<{ supported: boolean; signedIn: boolean }>("/api/youtube/auth"),
+  openYouTubeLogin: () => requestJson<{ ok: boolean }>("/api/youtube/auth/login", { method: "POST" }),
+  logoutYouTube: () => requestJson<{ ok: boolean; signedIn: boolean }>("/api/youtube/auth/logout", { method: "POST" }),
+  checkUpdate: (force = false) =>
+    requestJson<UpdateInfo>(`/api/app/update${force ? "?force=1" : ""}`),
 
   quitApp: () => requestJson<{ ok: boolean }>("/api/app/quit", { method: "POST" }),
 

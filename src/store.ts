@@ -7,6 +7,7 @@ import {
   type HealthInfo,
   type ProviderConfig,
   type Show,
+  type UpdateInfo,
 } from "./lib/api";
 import { AGENT_META, buildProviders, CLOUD_ASR_PRESETS, type ProviderOverride } from "./lib/providers";
 import {
@@ -28,7 +29,18 @@ export type SubtitleMode = "bilingual" | "translation" | "original" | "off";
 export type SubtitleSize = "s" | "m" | "l";
 export type ChatSize = "m" | "l";
 export type ThemeMode = "system" | "light" | "dark";
+export type TitleDisplayMode = "zh-first" | "orig-first" | "orig-only";
 export type SettingsSection = "appearance" | "asr" | "ai" | "network" | "reading";
+
+export function resolveTitleDisplayMode(raw: {
+  titleDisplayMode?: unknown;
+  autoTranslateTitles?: unknown;
+}): TitleDisplayMode {
+  if (raw.titleDisplayMode === "zh-first" || raw.titleDisplayMode === "orig-first" || raw.titleDisplayMode === "orig-only") {
+    return raw.titleDisplayMode;
+  }
+  return raw.autoTranslateTitles === false ? "orig-only" : "zh-first";
+}
 
 export interface PlayerHandle {
   episodeId: string;
@@ -48,6 +60,7 @@ export interface Prefs {
   audioNextLine: boolean;
   audioStageSub: boolean;
   autoTranslateTitles: boolean;
+  titleDisplayMode: TitleDisplayMode;
   playbackRate: number;
   volume: number;
   muted: boolean;
@@ -73,6 +86,7 @@ const DEFAULT_PREFS: Prefs = {
   audioNextLine: true,
   audioStageSub: true,
   autoTranslateTitles: true,
+  titleDisplayMode: "zh-first",
   playbackRate: 1,
   volume: 1,
   muted: false,
@@ -112,9 +126,12 @@ function normalizeAsrChoice(raw: string | undefined, status: AsrModelsStatus | n
 function readPrefs(): Prefs {
   try {
     const raw = JSON.parse(localStorage.getItem(PREFS_KEY) ?? "{}") as Partial<Prefs>;
+    const titleDisplayMode = resolveTitleDisplayMode(raw);
     return {
       ...DEFAULT_PREFS,
       ...raw,
+      titleDisplayMode,
+      autoTranslateTitles: titleDisplayMode !== "orig-only",
       lightTheme: normalizeLightTheme(raw.lightTheme),
       darkTheme: normalizeDarkTheme(raw.darkTheme),
     };
@@ -180,6 +197,9 @@ interface AppStore {
   settingsSection: SettingsSection;
   settingsTargetId: string | null;
   importOpen: boolean;
+  updateInfo: UpdateInfo | null;
+  updateModalOpen: boolean;
+  checkingUpdate: boolean;
   notice: { ok: boolean; text: string; action?: { label: string; run: () => void } } | null;
 
   set: (patch: Partial<AppStore>) => void;
@@ -188,6 +208,8 @@ interface AppStore {
   openSettings: (section?: SettingsSection, targetId?: string | null) => void;
   closeSettings: () => void;
   setImportOpen: (open: boolean) => void;
+  setUpdateModalOpen: (open: boolean) => void;
+  checkUpdate: (force?: boolean) => Promise<UpdateInfo | null>;
 
   go: (v: View) => void;
   back: () => void;
@@ -297,6 +319,9 @@ export const useStore = create<AppStore>((set, get) => ({
   settingsSection: "asr",
   settingsTargetId: null,
   importOpen: false,
+  updateInfo: null,
+  updateModalOpen: false,
+  checkingUpdate: false,
   notice: null,
 
   set: (patch) => set(patch),
@@ -306,6 +331,19 @@ export const useStore = create<AppStore>((set, get) => ({
     set({ settingsOpen: true, settingsSection: section, settingsTargetId: targetId ?? null }),
   closeSettings: () => set({ settingsOpen: false, settingsTargetId: null }),
   setImportOpen: (open) => set({ importOpen: open }),
+  setUpdateModalOpen: (open) => set({ updateModalOpen: open }),
+
+  checkUpdate: async (force = false) => {
+    set({ checkingUpdate: true });
+    try {
+      const info = await api.checkUpdate(force);
+      set({ updateInfo: info, checkingUpdate: false });
+      return info;
+    } catch {
+      set({ checkingUpdate: false });
+      return null;
+    }
+  },
 
   go: (v) => {
     const cur = get().view;
@@ -441,7 +479,18 @@ export const useStore = create<AppStore>((set, get) => ({
   },
 
   savePrefs: (patch) => {
-    const next = { ...get().prefs, ...patch };
+    const prev = get().prefs;
+    const synced: Partial<Prefs> = { ...patch };
+    if (patch.titleDisplayMode && patch.autoTranslateTitles === undefined) {
+      synced.autoTranslateTitles = patch.titleDisplayMode !== "orig-only";
+    } else if (patch.autoTranslateTitles !== undefined && patch.titleDisplayMode === undefined) {
+      synced.titleDisplayMode = patch.autoTranslateTitles
+        ? prev.titleDisplayMode === "orig-first"
+          ? "orig-first"
+          : "zh-first"
+        : "orig-only";
+    }
+    const next = { ...prev, ...synced };
     set({ prefs: next });
     savePrefsLocal(next);
   },
@@ -545,6 +594,7 @@ export const useStore = create<AppStore>((set, get) => ({
     if (readyAgent) {
       void api.warmAgent(readyAgent.kind).catch(() => {});
     }
+    void get().checkUpdate(false).catch(() => {});
   },
 
   refreshLibrary: async () => {

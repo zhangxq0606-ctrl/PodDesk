@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, ArrowUp, Check, ChevronDown, Copy, Download, Loader2, Mic, RefreshCw, ScrollText, Sparkles, Square } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
-import { parseGuideMarkdown } from "../../lib/ai";
+import { hasTimelineHeading, parseGuideMarkdown } from "../../lib/ai";
 import type { Episode } from "../../lib/api";
 import { fetchOfficialSub, loadEpisodeGuide, runEpisodeGuide, runTranscribe, stopEpisodeGuide, stopTranscribe, useJobs } from "../../lib/jobs";
 import { useLayout } from "../../lib/layout";
@@ -546,6 +546,28 @@ export function GuideTimelinePanel({ ep }: { ep: Episode }) {
                   </div>
                 );
               })}
+            </div>
+          ) : isStreaming ? (
+            <div className="gt-skeleton" aria-busy="true" aria-label="正在生成章节时间线">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="gt-sk-row">
+                  <div className="gt-sk-rail">
+                    <span className="gt-sk-dot" />
+                    <span className="gt-sk-line" />
+                  </div>
+                  <div className="gt-sk-card">
+                    <div className="sk sk-line sm" style={{ width: "36%" }} />
+                    <div className="sk sk-line" style={{ width: i % 2 === 0 ? "88%" : "72%" }} />
+                  </div>
+                </div>
+              ))}
+              <p className="muted small gt-sk-hint thinking-shine">
+                {hasTimelineHeading(rawMd)
+                  ? "正在生成首个章节时间线…"
+                  : parsed.overviewMd
+                    ? "正在提炼左侧核心要点，随后生成章节时间线…"
+                    : "正在通读整集文字稿并生成导读与时间线…"}
+              </p>
             </div>
           ) : parsed.timelineRaw || rawMd ? (
             <div className="summary">

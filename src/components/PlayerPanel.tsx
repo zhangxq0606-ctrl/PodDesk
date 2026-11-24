@@ -25,7 +25,7 @@ import {
   type AudioTab,
   type VideoTab,
 } from "../lib/layout";
-import { useShowTitleZh, useTitleZh } from "../lib/zh";
+import { useEpisodeTitleDisplay } from "../lib/zh";
 import { useStore } from "../store";
 import { ChatPanel, EpisodeOverviewCard, GuideTimelinePanel } from "./ChatPanel";
 import { SkeletonEpisode } from "./Illustrations";
@@ -223,8 +223,7 @@ export function EpisodeView({ id }: { id: string }) {
     }
   }, [draftAsk, id, ep?.videoId, ep?.audioUrl, preferAudio, panelOpen, put]);
 
-  const titleZh = useTitleZh(ep?.title);
-  const showTitleZh = useShowTitleZh(ep?.showTitle);
+  const epTitle = useEpisodeTitleDisplay(ep?.title);
 
   if (!ep) {
     return (
@@ -338,14 +337,13 @@ export function EpisodeView({ id }: { id: string }) {
           <section className="ep-left">
             <div className="ep-title-block">
               <div className="ep-title">
-                <h1>{titleZh ?? ep.title}</h1>
-                {titleZh && <p className="ep-title-orig">{ep.title}</p>}
+                <h1>{epTitle.primary}</h1>
+                {epTitle.secondary && <p className="ep-title-orig">{epTitle.secondary}</p>}
                 <p className="meta-line">
-                  <span title={showTitleZh && ep.showTitle ? ep.showTitle : undefined}>
-                    {showTitleZh ??
-                      (ep.showTitle ||
-                        extractSingleAuthor(ep) ||
-                        (ep.videoId ? "YouTube 单集" : ep.audioUrl ? "本地/单集音频" : "导入文稿"))}
+                  <span>
+                    {ep.showTitle ||
+                      extractSingleAuthor(ep) ||
+                      (ep.videoId ? "YouTube 单集" : ep.audioUrl ? "本地/单集音频" : "导入文稿")}
                   </span>
                   {ep.published ? <span>· {formatPublishDate(ep.published)}</span> : null}
                   {ep.duration ? <span>· {formatDuration(ep.duration)}</span> : null}
