@@ -3,12 +3,12 @@ lifecycle: bootstrap
 foundation: pending
 active_goal: null
 work_status: active
-last_verified: 2026-11-23
+last_verified: 2026-11-24
 ---
 
 # 当前里程碑
 
-阶段 1–4、Tauri v2 Windows 独立桌面客户端收口、**第一关「架构模块化、性能治理、可靠性补齐与前端测试护栏」**与**第二关「UI 质感重塑、8 套三轴主题体系与微动效」**均已完成并打入最新桌面安装包（`PodDesk_0.1.0_x64-setup.exe`，`6.05 MiB`）；`README.md` 按船长约定暂留至对外发布前拟写。
+阶段 1–4、Tauri v2 Windows 独立桌面客户端收口、**第一关「架构模块化、性能治理、可靠性补齐与前端测试护栏」**、**第二关「UI 质感重塑、8 套三轴主题体系与微动效」**与**macOS Apple Silicon 真机适配、`.dmg` 打包与跨平台 CI 护栏**均已完成；Windows 安装包仍为 `PodDesk_0.1.0_x64-setup.exe`（`6.05 MiB`），macOS 新增 `PodDesk_0.1.0_aarch64.dmg`（`8.27 MiB`）；`README.md` 按船长约定暂留至对外发布前拟写。
 
 # 已验证能力
 
@@ -17,6 +17,12 @@ last_verified: 2026-11-23
   - 前端检查与生产构建：`npm run typecheck`（`tsc --noEmit`）与 `npm run build`（Vite 6 打包 `dist/`，2,191 modules，CSS `99.36 kB` / JS `502.85 kB`）退出 0；扫描 `dist/` 确认开发态实验室代码 **0 泄漏（`LAB_HITS=0`）**；
   - 后端（无 `CMake`/`LLVM`、无 `whisper-rs`）：`server/` 下 `cargo test` 零警告通过（**53 passed, 0 failed, 1 ignored**），`cargo build` 退出 0 产出 `server/target/debug/podcast-desk.exe`；
   - 桌面端：`npm run tauri:build`（38.57s 编译 release）退出 0，产出最新 `desktop/target/release/podcast-desk-desktop.exe`（`23,676,416` bytes）与 NSIS 安装包 `desktop/target/release/bundle/nsis/PodDesk_0.1.0_x64-setup.exe`（**6.05 MiB**，随包携带 4 个 VS 2022 VC++ 运行库 DLL）。
+- **macOS Apple Silicon 真机适配、DMG 打包与跨平台护栏（2026-11-24，Apple M1 / macOS 15.8）**：
+  - 打包与安装：`npm run tauri:build` 首次通过，产出 `PodDesk.app`（24.58 MiB）与 `PodDesk_0.1.0_aarch64.dmg`（**8.27 MiB**，SHA-256 `b4157864…957ceb`）；从 dmg 复制到 `/Applications` 后启动，ad-hoc 签名 `spctl` 判定 accepted，本地构建无 quarantine。
+  - 桌面壳链路：菜单栏状态项存在；`Cmd+W` 关闭隐入后台、点 Dock 图标恢复窗口；WebView 内 `Cmd+A/C/V` 正常；外链唤起默认浏览器；单实例二次启动仅保留 1 个进程；退出重启后字幕与 `window-state.json` 完整恢复。
+  - 抓源与代理：系统代理透传为 `http://127.0.0.1:7897`；YouTube 单集抓取与官方字幕成功；自动安装 `yt-dlp_macos`（universal，2026.10.26）并取回直链、下载音频转写；`Codex` 指定 `gpt-5.6-terra` 后 SSE 流式输出至 `done`。
+  - 本地离线 ASR：`crispasr-macos-arm64.tar.gz` 解压含 `libc2pa_c.dylib`，`ggml backends: cpu,metal,blas`，实测走 `ggml_metal`；Qwen3-ASR 0.6B 与 SenseVoice-Small 均产出带时间戳字幕；ASR 文案修正为 `Apple M1 · Metal 加速（aarch64）` 与 `Apple Silicon (Metal)`，Windows/x86_64 分支未改。
+  - 跨平台护栏：`.gitattributes`、`.nvmrc`、`rust-toolchain.toml`、`npm run version:check` 与 `.github/workflows/ci.yml` 落地；CI 为 `web` + `windows-latest` + `macos-26`（arm64）三路，PR #1/#2 三绿后合并。
 - **Tauri v2 桌面端与数据迁移实测**：
   - 已将原 `D:\project\podcast-desk\data\` 订阅库、`CrispASR v0.8.55`（`vulkan` + `cpu`）、Silero VAD 与两档离线模型无损复制至 `%LOCALAPPDATA%\podcast-desk`；
   - 实机启动 `podcast-desk-desktop.exe` 验证无黑框、`GET /` 返回 HTTP `200`（内嵌前端）、`GET /api/health` 指向 `%LOCALAPPDATA%\podcast-desk` 且完整可见既有 2 个订阅、`GET /api/asr/models` 识别 RTX 5070 Ti（`-dev 1` Vulkan）与双模型就绪；二次启动实测触发单实例锁定并立即退出（仅保留 1 个进程）。
@@ -49,6 +55,9 @@ last_verified: 2026-11-23
 - 高配档 `Qwen3-ASR 1.7B (Q5_K)`（1.66 GB）及长音频播客（>30 分钟）的 Silero VAD 切句字幕密度与 `[mm:ss]` 跳转体验；
 - 豆包 / 硅基流动 / DeepSeek 等付费云端 ASR 与需配 Key 云端大模型（如 DeepSeek）/ 其他本机 CLI Agent（如 `Gemini CLI`、`Claude Code`）完整真机实测；
 - 按需粘贴真实 YouTube `cookies.txt` 后绕过 `yt-dlp` 人机验证的真机效果。
+- Windows 真机在本次合并后复跑 `npm run tauri:build` 并安装 NSIS 包，重点确认 ASR 文案仍为 `CPU (AVX2)` / GPU、托盘与关闭缩托盘行为未受 macOS 条件分支影响（Windows CI 已过，真机未复核）；
+- macOS 从 Release 下载的 dmg 经 Gatekeeper 首次打开（本地构建无 quarantine，下载场景未实测）；
+- macOS 托盘右键菜单三项（打开 PodDesk / 打开数据目录 / 退出）的实际点击（自动化环境未授予屏幕录制权限；底层 `open` 与退出关服路径已分别验证）。
 
 # 已知技术债
 
@@ -58,9 +67,16 @@ last_verified: 2026-11-23
 
 # 下一步
 
-第一关（架构治理与测试护栏）与第二关（UI 质感重塑、8 套主题与微动效体系）均已闭环打包；可先用新打包的 `PodDesk_0.1.0_x64-setup.exe` 覆盖更新本机桌面端并在窄屏下体验定稿界面，决定如何分批 `commit` 当前两关改动，后续按需推进二期知识沉淀增强或对外发布时再补写带截图的 `README.md`。
+macOS 真机适配与跨平台护栏已合并 `main`；下一步在 Windows 真机复跑基线并安装 NSIS 包，随后按需补充 `release.yml` 做 tag 触发的自动出包，以及按需开启 `main` 分支保护。
 
 # 最近完成
+
+- **2026-11-24（macOS Apple Silicon 真机适配、DMG 打包与跨平台 CI 护栏）**：
+  - 平台文案（[hardware.rs](server/src/asr/hardware.rs)、[AsrSettingsSection.tsx](src/components/settings/AsrSettingsSection.tsx)）：macOS/aarch64 下 `cpu` 变体显示 `Apple Silicon (Metal)`，硬件摘要显示 `Apple M1 · Metal 加速（aarch64）`，推荐回退固定为 `cpu`；Windows/x86_64 分支不变。
+  - 打包与实机（`desktop/`、[run-tauri.mjs](scripts/run-tauri.mjs)）：`npm run tauri:build` 产出 `.app` 与 `PodDesk_0.1.0_aarch64.dmg`（8.27 MiB），从 dmg 安装至 `/Applications` 后逐项验证托盘状态项、关闭隐入后台与 Dock 唤起、`Cmd+A/C/V`、外链、系统代理、yt-dlp、Codex SSE、单实例与重启持久化。
+  - 离线 ASR：CrispASR macOS arm64 包含 `libc2pa_c.dylib` 与内嵌 Metal 库，实测 Qwen3-ASR 0.6B 与 SenseVoice-Small 均走 `ggml_metal` 并产出时间戳字幕。
+  - 护栏（[.gitattributes](.gitattributes)、[rust-toolchain.toml](rust-toolchain.toml)、[.nvmrc](.nvmrc)、[sync-version.mjs](scripts/sync-version.mjs)、[ci.yml](.github/workflows/ci.yml)）：固定换行、Rust 1.100.0、Node 24 与四处版本一致性；CI 在 `web`、`windows-latest`、`macos-26` 三路执行，PR #1/#2 三绿后合并。
+  - 验证边界：CI 与 macOS 真机已过；Windows NSIS 真机安装、托盘菜单实际点击、Release 下载后的 Gatekeeper 首次打开未复核。
 
 - **2026-11-23（试用反馈三项修复：继续观看卡实时同步、外文标题自动翻译、字幕放大下移）**：
   - 进度同步（[recent.ts](src/lib/recent.ts)、[store.ts](src/store.ts)、[playerUtils.ts](src/components/player/playerUtils.ts)、[Lists.tsx](src/components/Lists.tsx)、[VideoStage.tsx](src/components/player/VideoStage.tsx)、[Controls.tsx](src/components/player/Controls.tsx)）：播放进度写入时将该集置顶到「最近」、回拖进度不再被 `Math.max` 吞掉、离开单集页/关闭迷你播放器/视频卸载立即同步，首页「继续观看/收听」首卡跟随当前播放（仅该卡订阅秒级进度）。
