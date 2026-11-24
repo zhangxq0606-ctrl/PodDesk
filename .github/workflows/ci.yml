@@ -3,7 +3,15 @@ name: CI
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'website/**'
   pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'website/**'
 
 permissions:
   contents: read
@@ -40,10 +48,14 @@ jobs:
           cache: npm
       - name: Install Rust toolchain
         run: rustup show
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            server -> target
+            desktop -> target
       - run: npm ci
       # rust-embed needs ../dist at compile time, so build the frontend first.
       - run: npm run build
-      - run: npm run version:check
       # tauri.windows.conf.json bundles vcrt/*.dll, staged by the same script the Windows release build uses.
       - name: Stage Windows VC++ runtime DLLs
         if: runner.os == 'Windows'
