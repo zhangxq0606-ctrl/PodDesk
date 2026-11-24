@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run test
+      - run: npm run build
+      - run: npm run version:check
+
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-26]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Install Rust toolchain
+        run: rustup show
+      - run: npm ci
+      # rust-embed needs ../dist at compile time, so build the frontend first.
+      - run: npm run build
+      - run: npm run version:check
+      # tauri.windows.conf.json bundles vcrt/*.dll, staged by the same script the Windows release build uses.
+      - name: Stage Windows VC++ runtime DLLs
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/stage-vcrt.ps1
+      - run: cargo test --manifest-path server/Cargo.toml
+      - run: cargo check --manifest-path desktop/Cargo.toml

@@ -25,9 +25,10 @@
 
 ## 验证入口
 
-- 安装：`npm install`（项目根目录，当前会话经 `--registry=https://registry.npmmirror.com` 直连实测通过并生成 `package-lock.json`）；Rust 依赖由 `cargo build` / `cargo test` 在 `server/` 目录与 `desktop/` 目录自动拉取通过
-- 构建：`npm run build`（项目根目录 `tsc --noEmit && vite build`）、`cargo build`（`server/` 目录）与 `npm run tauri:build`（项目根目录，构建桌面端 `podcast-desk-desktop.exe` 及 NSIS 安装包）
-- 测试：`cargo test`（`server/` 目录）、`npm run test`（项目根目录，Vitest）与 `npm run typecheck`（项目根目录）
+- 安装：Node 版本以根目录 `.nvmrc` 为准、Rust 版本以根目录 `rust-toolchain.toml` 为准；`npm install`（项目根目录，当前会话经 `--registry=https://registry.npmmirror.com` 直连实测通过并生成 `package-lock.json`）；Rust 依赖由 `cargo build` / `cargo test` 在 `server/` 目录与 `desktop/` 目录自动拉取通过
+- 构建：`npm run build`（项目根目录 `tsc --noEmit && vite build`）、`cargo build`（`server/` 目录）与 `npm run tauri:build`（项目根目录，Windows 构建 `podcast-desk-desktop.exe` 及 NSIS 安装包，macOS 构建 `.app` 与 `.dmg`）
+- 测试：`cargo test`（`server/` 目录）、`npm run test`（项目根目录，Vitest）、`npm run typecheck`（项目根目录）与 `npm run version:check`（校验 `package.json`、Tauri 配置与两个 `Cargo.toml` 版本一致）
+- 持续集成：`.github/workflows/ci.yml` 在 GitHub Actions 对 `web`、`windows-latest` 与 `macos-26`（arm64）三路执行测试与原生编译检查
 - 运行：`.\desktop\target\release\podcast-desk-desktop.exe`（桌面端，数据存 `%LOCALAPPDATA%\podcast-desk`）或 `.\server\target\debug\podcast-desk.exe`（CLI 服务模式，默认绑定 `127.0.0.1:14327`，静默启动加 `--no-open`）
 
 每项验证入口只能是：真实且已验证的命令、`待建立`，或`不适用（原因）`。Foundation 退出前，所有适用命令必须实测；不适用项必须保留原因。
