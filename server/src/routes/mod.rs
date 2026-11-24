@@ -41,6 +41,7 @@ pub struct AppState {
     pub port: u16,
     pub jobs: Mutex<HashMap<String, Arc<AtomicBool>>>,
     pub quit_tx: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+    pub yt_login: Option<Arc<dyn crate::YtLoginBridge>>,
 }
 
 impl AppState {
@@ -135,6 +136,9 @@ pub fn router(state: Arc<AppState>, dist_dir: Option<PathBuf>) -> Router {
         .route("/api/asr/models/download", post(asr::download_asr_models))
         .route("/api/asr/probe", post(asr::probe_asr_runtime))
         .route("/api/cookies", get(settings::get_cookies).post(settings::set_cookies))
+        .route("/api/youtube/auth", get(settings::get_youtube_auth))
+        .route("/api/youtube/auth/login", post(settings::open_youtube_login))
+        .route("/api/youtube/auth/logout", post(settings::logout_youtube))
         .route("/api/translate/google", post(ai::translate_google))
         .route("/api/agents", get(ai::detect_agents))
         .route("/api/agents/warm", post(ai::warm_agent))
@@ -144,6 +148,7 @@ pub fn router(state: Arc<AppState>, dist_dir: Option<PathBuf>) -> Router {
         .route("/api/llm/chat", post(ai::llm_chat))
         .route("/api/jobs/active", get(active_jobs))
         .route("/api/jobs/{id}/cancel", post(cancel_job))
+        .route("/api/app/update", get(app_update))
         .route("/api/app/quit", post(app_quit))
         .route("/api/events/ping", get(ping_sse))
         .nest_service("/api/media", ServeDir::new(media_dir))
@@ -211,8 +216,25 @@ async fn health(State(state): State<Arc<AppState>>) -> Response {
         "effectiveProxy": net::effective_proxy(),
         "githubMirror": net::github_mirror(),
         "activeJobs": state.active_job_count(),
+        "ytLoginSupported": state.yt_login.is_some(),
     }))
     .into_response()
+}
+
+#[derive(serde::Deserialize, Default)]
+struct UpdateQuery {
+    force: Option<String>,
+}
+
+async fn app_update(axum::extract::Query(q): axum::extract::Query<UpdateQuery>) -> Response {
+    let force = q
+        .force
+        .as_deref()
+        .is_some_and(|v| v == "1" || v.eq_ignore_ascii_case("true"));
+    match crate::update::check(force).await {
+        Ok(info) => Json(info).into_response(),
+        Err(e) => api_error(StatusCode::BAD_GATEWAY, e.to_string()),
+    }
 }
 
 async fn cancel_job(
@@ -274,6 +296,7 @@ mod tests {
             port: 14327,
             jobs: Mutex::new(HashMap::new()),
             quit_tx: Mutex::new(None),
+            yt_login: None,
         };
         assert_eq!(state.active_job_count(), 0);
         let f1 = state.start_job("j1");

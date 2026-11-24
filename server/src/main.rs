@@ -50,6 +50,7 @@ async fn main() -> Result<()> {
         data_dir,
         dist_dir: Some(dist_dir),
         quit_tx: None,
+        yt_login: None,
     })
     .await?;
 

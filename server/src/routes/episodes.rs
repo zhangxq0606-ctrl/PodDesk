@@ -531,10 +531,12 @@ pub async fn episode_stream_url(
     };
     let fresh = q.fresh.unwrap_or(false);
     let data = state.data_dir.clone();
+    let yt_login = state.yt_login.clone();
     match asr::with_ytdlp(&state.data_dir, |bin| {
         let d = data.clone();
         let vid = video_id.clone();
-        async move { asr::youtube_stream_url(&d, &bin, &vid, fresh).await }
+        let login = yt_login.clone();
+        async move { asr::youtube_stream_url(&d, &bin, &vid, fresh, login).await }
     })
     .await
     {

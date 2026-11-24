@@ -1,11 +1,13 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod ytlogin;
+
 use podcast_desk_core::{
     detect_dist_dir, open_browser, standard_data_dir, start_server, RunningServer, ServerConfig, DEFAULT_PORT,
 };
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder},
@@ -284,12 +286,14 @@ fn main() {
                 None
             };
 
+            let yt_login = Arc::new(ytlogin::DesktopYtLogin::new(app.handle().clone()));
             let (quit_tx, quit_rx) = tokio::sync::oneshot::channel::<()>();
             let server = tauri::async_runtime::block_on(start_server(ServerConfig {
                 port: DEFAULT_PORT,
                 data_dir: data_dir.clone(),
                 dist_dir,
                 quit_tx: Some(quit_tx),
+                yt_login: Some(yt_login),
             }))?;
 
             let url: url::Url = server.url.parse()?;

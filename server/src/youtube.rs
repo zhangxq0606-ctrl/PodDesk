@@ -406,6 +406,21 @@ pub fn parse_relative_time(s: &str, now: i64) -> Option<i64> {
         };
         return Some(now - n * unit_ms);
     }
+    let re_compact = regex::Regex::new(r"(?:^|\b)(\d+)\s*(mo|sec|min|hr|[smhdwy])\s+ago\b").ok()?;
+    if let Some(c) = re_compact.captures(&lower) {
+        let n: i64 = c[1].parse().ok()?;
+        let unit_ms: i64 = match &c[2] {
+            "s" | "sec" => 1_000,
+            "m" | "min" => 60_000,
+            "h" | "hr" => 3_600_000,
+            "d" => 86_400_000,
+            "w" => 7 * 86_400_000,
+            "mo" => 30 * 86_400_000,
+            "y" => 365 * 86_400_000,
+            _ => return None,
+        };
+        return Some(now - n * unit_ms);
+    }
     let re_zh = regex::Regex::new(r"(\d+)\s*(秒|分钟|小时|天|周|个月|月|年)前").ok()?;
     if let Some(c) = re_zh.captures(&lower) {
         let n: i64 = c[1].parse().ok()?;
@@ -532,12 +547,91 @@ pub fn collect_page_videos(v: &Value, now: i64, out: &mut Vec<PageVideo>, cont: 
                 }
                 return;
             }
+            if let Some(lk) = map.get("lockupViewModel") {
+                let kind = lk["contentType"].as_str();
+                if kind.is_none_or(|k| k == "LOCKUP_CONTENT_TYPE_VIDEO") {
+                    let is_shorts_url = lk["rendererContext"]["commandContext"]["onTap"]["innertubeCommand"]
+                        ["commandMetadata"]["webCommandMetadata"]["url"]
+                        .as_str()
+                        .is_some_and(|u| u.contains("/shorts/"));
+                    if !is_shorts_url {
+                        if let Some(vid) = lk["contentId"].as_str().map(str::trim).filter(|s| !s.is_empty()) {
+                            let meta = &lk["metadata"]["lockupMetadataViewModel"];
+                            let title = meta["title"]["content"]
+                                .as_str()
+                                .map(str::trim)
+                                .filter(|s| !s.is_empty())
+                                .map(str::to_string)
+                                .or_else(|| text_field(&meta["title"]));
+                            if let Some(title) = title {
+                                let mut badge_dur: Option<String> = None;
+                                let mut is_shorts_badge = false;
+                                if let Some(overlays) = lk["contentImage"]["thumbnailViewModel"]["overlays"].as_array() {
+                                    for ov in overlays {
+                                        if let Some(badges) = ov["thumbnailBottomOverlayViewModel"]["badges"].as_array() {
+                                            for b in badges {
+                                                let tb = &b["thumbnailBadgeViewModel"];
+                                                let txt = tb["text"].as_str().map(str::trim).unwrap_or("");
+                                                let style = tb["badgeStyle"].as_str().unwrap_or("");
+                                                if txt.eq_ignore_ascii_case("SHORTS") || style.contains("SHORTS") {
+                                                    is_shorts_badge = true;
+                                                } else if badge_dur.is_none() && !txt.is_empty() {
+                                                    badge_dur = Some(txt.to_string());
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                if !is_shorts_badge {
+                                    let duration = badge_dur.as_deref().and_then(parse_duration_text);
+                                    let mut published = None;
+                                    if let Some(rows) = meta["metadata"]["contentMetadataViewModel"]["metadataRows"].as_array() {
+                                        'rows: for row in rows {
+                                            for part in row["metadataParts"].as_array().into_iter().flatten() {
+                                                for cand in [
+                                                    part["accessibilityLabel"].as_str(),
+                                                    part["text"]["content"].as_str(),
+                                                ] {
+                                                    if let Some(ts) = cand.and_then(|s| parse_relative_time(s, now)) {
+                                                        published = Some(ts);
+                                                        break 'rows;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    out.push(PageVideo {
+                                        video_id: vid.to_string(),
+                                        title,
+                                        duration,
+                                        published,
+                                        cover: format!("https://i.ytimg.com/vi/{vid}/mqdefault.jpg"),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+                return;
+            }
             if let Some(cr) = map.get("continuationItemRenderer") {
                 if cont.is_none() {
                     if let Some(tok) = cr["continuationEndpoint"]["continuationCommand"]["token"].as_str() {
                         if !tok.trim().is_empty() {
                             *cont = Some(tok.to_string());
                         }
+                    }
+                }
+                return;
+            }
+            if let Some(cv) = map.get("continuationItemViewModel") {
+                if cont.is_none() {
+                    let tok = cv["continuationCommand"]["innertubeCommand"]["continuationCommand"]["token"]
+                        .as_str()
+                        .or_else(|| cv["continuationCommand"]["token"].as_str())
+                        .or_else(|| cv["continuationCommand"]["innertubeCommand"]["token"].as_str());
+                    if let Some(tok) = tok.filter(|t| !t.trim().is_empty()) {
+                        *cont = Some(tok.to_string());
                     }
                 }
                 return;
@@ -566,6 +660,11 @@ pub fn parse_page_initial_html(html: &str, page_url: &str, now: i64) -> Result<P
     let title = ch_meta["title"]
         .as_str()
         .or_else(|| pl_meta["title"].as_str())
+        .or_else(|| data["header"]["pageHeaderRenderer"]["pageTitle"].as_str())
+        .or_else(|| {
+            data["header"]["playlistHeaderRenderer"]["title"]["simpleText"]
+                .as_str()
+        })
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
     let description = ch_meta["description"]
@@ -738,7 +837,26 @@ mod tests {
         let now = 1_700_000_000_000i64;
         assert_eq!(parse_relative_time("Streamed 2 weeks ago", now), Some(now - 14 * 86_400_000));
         assert_eq!(parse_relative_time("3 months ago", now), Some(now - 90 * 86_400_000));
+        assert_eq!(parse_relative_time("7d ago", now), Some(now - 7 * 86_400_000));
+        assert_eq!(parse_relative_time("2mo ago", now), Some(now - 60 * 86_400_000));
         assert_eq!(parse_relative_time("5 天前", now), Some(now - 5 * 86_400_000));
+    }
+
+    #[test]
+    fn extracts_lockup_view_model_and_continuation_view_model() {
+        let html = r#"
+        <script>var ytCfg = {"INNERTUBE_API_KEY":"key_pl","INNERTUBE_CLIENT_VERSION":"2.20261101.00.00"};</script>
+        <script>var ytInitialData = {"metadata":{"playlistMetadataRenderer":{"title":"Dwarkesh Podcast"}},"contents":[{"lockupViewModel":{"contentId":"SyHM5hNPAEo","contentType":"LOCKUP_CONTENT_TYPE_VIDEO","contentImage":{"thumbnailViewModel":{"overlays":[{"thumbnailBottomOverlayViewModel":{"badges":[{"thumbnailBadgeViewModel":{"text":"1:38:46","badgeStyle":"THUMBNAIL_OVERLAY_BADGE_STYLE_DEFAULT"}}]}}]}},"metadata":{"lockupMetadataViewModel":{"title":{"content":"AIs might overthrow the government"},"metadata":{"contentMetadataViewModel":{"metadataRows":[{"metadataParts":[{"text":{"content":"Dwarkesh Patel"}}]},{"metadataParts":[{"text":{"content":"468K"},"accessibilityLabel":"468 thousand views"},{"text":{"content":"7d ago"},"accessibilityLabel":"7 days ago"}]}]}}}}}},{"lockupViewModel":{"contentId":"shortVid123","contentType":"LOCKUP_CONTENT_TYPE_VIDEO","contentImage":{"thumbnailViewModel":{"overlays":[{"thumbnailBottomOverlayViewModel":{"badges":[{"thumbnailBadgeViewModel":{"text":"SHORTS","badgeStyle":"THUMBNAIL_OVERLAY_BADGE_STYLE_SHORTS"}}]}}]}},"metadata":{"lockupMetadataViewModel":{"title":{"content":"Short clip"}}}}},{"continuationItemViewModel":{"continuationCommand":{"innertubeCommand":{"continuationCommand":{"token":"CONT_LOCKUP_123","request":"CONTINUATION_REQUEST_TYPE_BROWSE"}}}}}]};</script>
+        "#;
+        let now = 1_700_000_000_000i64;
+        let batch = parse_page_initial_html(html, "https://www.youtube.com/playlist?list=PL123", now).unwrap();
+        assert_eq!(batch.title.as_deref(), Some("Dwarkesh Podcast"));
+        assert_eq!(batch.continuation.as_deref(), Some("CONT_LOCKUP_123"));
+        assert_eq!(batch.items.len(), 1);
+        assert_eq!(batch.items[0].video_id, "SyHM5hNPAEo");
+        assert_eq!(batch.items[0].title, "AIs might overthrow the government");
+        assert_eq!(batch.items[0].duration, Some(5926.0));
+        assert_eq!(batch.items[0].published, Some(now - 7 * 86_400_000));
     }
 
     #[test]

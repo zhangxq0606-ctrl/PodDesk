@@ -10,6 +10,7 @@ pub mod net;
 pub mod routes;
 pub mod transcript;
 pub mod translate;
+pub mod update;
 pub mod youtube;
 
 use anyhow::{anyhow, Context, Result};
@@ -24,11 +25,20 @@ use tokio::net::TcpListener;
 pub const DEFAULT_PORT: u16 = 14327;
 const PORT_SPAN: u16 = 20;
 
+/// Desktop-shell hook for in-app YouTube sign-in & cookie jar export without linking `tauri` into `server`.
+pub trait YtLoginBridge: Send + Sync {
+    fn is_signed_in(&self) -> bool;
+    fn open_login(&self) -> std::result::Result<(), String>;
+    fn sign_out(&self) -> std::result::Result<(), String>;
+    fn export_cookie_jar(&self) -> Option<String>;
+}
+
 pub struct ServerConfig {
     pub port: u16,
     pub data_dir: PathBuf,
     pub dist_dir: Option<PathBuf>,
     pub quit_tx: Option<tokio::sync::oneshot::Sender<()>>,
+    pub yt_login: Option<Arc<dyn YtLoginBridge>>,
 }
 
 pub struct RunningServer {
@@ -162,6 +172,7 @@ pub async fn start_server(cfg: ServerConfig) -> Result<RunningServer> {
         port,
         jobs: Mutex::new(HashMap::new()),
         quit_tx: Mutex::new(cfg.quit_tx),
+        yt_login: cfg.yt_login,
     });
     let dist_source = match &cfg.dist_dir {
         Some(d) if d.join("index.html").is_file() => d.display().to_string(),

@@ -202,11 +202,22 @@ where
     let bin = ytdlp(data).await?;
     match job(bin.clone()).await {
         Ok(v) => Ok(v),
-        Err(e) if e.to_string().contains("已取消") || e.to_string().contains("超时") => Err(e),
-        Err(e) => match update_ytdlp(data, true).await {
-            Ok(true) => job(data.join("bin").join(exe("yt-dlp"))).await,
-            _ => Err(e),
-        },
+        Err(e) => {
+            let msg = e.to_string();
+            // Do not waste 10–30s auto-updating yt-dlp on user cancellation, timeouts, or YouTube anti-bot checks.
+            if msg.contains("已取消")
+                || msg.contains("超时")
+                || bot_check(&msg)
+                || msg.contains("确认不是机器人")
+                || msg.contains("cookies.txt")
+            {
+                return Err(e);
+            }
+            match update_ytdlp(data, true).await {
+                Ok(true) => job(data.join("bin").join(exe("yt-dlp"))).await,
+                _ => Err(e),
+            }
+        }
     }
 }
 
@@ -260,7 +271,27 @@ fn bot_check(msg: &str) -> bool {
     (m.contains("confirm you") && m.contains("bot")) || m.contains("sign in to confirm")
 }
 
-pub async fn with_bot_fallback<T, F, Fut>(data: &Path, job: F) -> Result<T>
+fn write_temp_cookie_file(jar: &str) -> Result<PathBuf> {
+    let path = std::env::temp_dir().join(format!("poddesk-yt-{}.txt", uuid::Uuid::new_v4()));
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut f = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&path)?;
+        f.write_all(jar.as_bytes())?;
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::write(&path, jar)?;
+    }
+    Ok(path)
+}
+
+pub async fn with_bot_fallback<T, F, Fut>(
+    data: &Path,
+    yt_login: Option<Arc<dyn crate::YtLoginBridge>>,
+    job: F,
+) -> Result<T>
 where
     F: Fn(Vec<String>) -> Fut,
     Fut: std::future::Future<Output = Result<T>>,
@@ -270,19 +301,44 @@ where
             let alt = vec!["--extractor-args".to_string(), "youtube:player_client=tv,web_safari,mweb".to_string()];
             match job(alt).await {
                 Err(e2) if bot_check(&e2.to_string()) => {
-                    if !has_cookies(data) {
-                        return Err(anyhow!(
-                            "YouTube 触发了「确认不是机器人」校验。请按需在「设置 › YouTube 防风控 Cookie」粘贴导出后的 cookies.txt 后重试"
-                        ));
-                    }
-                    let cookie_args = vec!["--cookies".into(), cookies_path(data).to_string_lossy().into_owned()];
-                    job(cookie_args).await.map_err(|e3| {
-                        if bot_check(&e3.to_string()) {
-                            anyhow!("YouTube 仍然要求验证，当前保存的 cookies.txt 可能已过期，请在设置中重新导出粘贴")
-                        } else {
-                            e3
+                    if let Some(bridge) = &yt_login {
+                        let b = bridge.clone();
+                        if let Ok(Some(jar)) = tokio::task::spawn_blocking(move || b.export_cookie_jar()).await {
+                            let tmp_cookie = write_temp_cookie_file(&jar)?;
+                            let cookie_args = vec![
+                                "--cookies".into(),
+                                tmp_cookie.to_string_lossy().into_owned(),
+                            ];
+                            let res = job(cookie_args).await;
+                            let _ = std::fs::remove_file(&tmp_cookie);
+                            return res.map_err(|e3| {
+                                if bot_check(&e3.to_string()) {
+                                    anyhow!("YouTube 仍然要求验证，请点击「登录 YouTube」重新确认账号登录，或在设置中导入 cookies.txt")
+                                } else {
+                                    e3
+                                }
+                            });
                         }
-                    })
+                    }
+                    if has_cookies(data) {
+                        let cookie_args = vec!["--cookies".into(), cookies_path(data).to_string_lossy().into_owned()];
+                        return job(cookie_args).await.map_err(|e3| {
+                            if bot_check(&e3.to_string()) {
+                                anyhow!("YouTube 仍然要求验证，当前保存的 cookies.txt 可能已过期，请在设置中重新导出粘贴")
+                            } else {
+                                e3
+                            }
+                        });
+                    }
+                    if yt_login.is_some() {
+                        Err(anyhow!(
+                            "YouTube 触发了「确认不是机器人」校验。请点击「登录 YouTube」完成一次登录，或按需在设置中导入 cookies.txt 后重试"
+                        ))
+                    } else {
+                        Err(anyhow!(
+                            "YouTube 触发了「确认不是机器人」校验。请在「设置 › 网络与风控」按指引导出并导入 cookies.txt 后重试"
+                        ))
+                    }
                 }
                 other => other,
             }
@@ -297,8 +353,9 @@ pub async fn youtube_audio(
     video_id: &str,
     dir: &Path,
     cancel: Arc<AtomicBool>,
+    yt_login: Option<Arc<dyn crate::YtLoginBridge>>,
 ) -> Result<PathBuf> {
-    with_bot_fallback(data, |extra| {
+    with_bot_fallback(data, yt_login, |extra| {
         let c = cancel.clone();
         async move {
             let x: Vec<&str> = extra.iter().map(String::as_str).collect();
@@ -361,14 +418,20 @@ async fn youtube_audio_with(
     Err(anyhow!("没有找到下载的音频"))
 }
 
-pub async fn youtube_stream_url(data: &Path, ytdlp: &Path, video_id: &str, fresh: bool) -> Result<String> {
+pub async fn youtube_stream_url(
+    data: &Path,
+    ytdlp: &Path,
+    video_id: &str,
+    fresh: bool,
+    yt_login: Option<Arc<dyn crate::YtLoginBridge>>,
+) -> Result<String> {
     let key = format!("{video_id}|mp4");
     if fresh {
         streams::forget(&key);
     } else if let Some(url) = streams::get(&key) {
         return Ok(url);
     }
-    let url = with_bot_fallback(data, |extra| async move { stream_once(ytdlp, video_id, &extra).await }).await?;
+    let url = with_bot_fallback(data, yt_login, |extra| async move { stream_once(ytdlp, video_id, &extra).await }).await?;
     streams::put(&key, &url);
     Ok(url)
 }

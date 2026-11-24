@@ -80,3 +80,37 @@ pub async fn set_cookies(State(state): State<Arc<AppState>>, Json(body): Json<Co
         Err(e) => api_error(StatusCode::INTERNAL_SERVER_ERROR, format!("保存 Cookie 失败：{e}")),
     }
 }
+
+pub async fn get_youtube_auth(State(state): State<Arc<AppState>>) -> Response {
+    let Some(bridge) = state.yt_login.clone() else {
+        return Json(json!({ "supported": false, "signedIn": false })).into_response();
+    };
+    let signed_in = tokio::task::spawn_blocking(move || bridge.is_signed_in())
+        .await
+        .unwrap_or(false);
+    Json(json!({ "supported": true, "signedIn": signed_in })).into_response()
+}
+
+pub async fn open_youtube_login(State(state): State<Arc<AppState>>) -> Response {
+    let Some(bridge) = state.yt_login.as_ref() else {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "当前仅桌面端支持内置 YouTube 登录窗口，请使用下方的 cookies.txt 导入",
+        );
+    };
+    match bridge.open_login() {
+        Ok(()) => Json(json!({ "ok": true })).into_response(),
+        Err(e) => api_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
+}
+
+pub async fn logout_youtube(State(state): State<Arc<AppState>>) -> Response {
+    let Some(bridge) = state.yt_login.clone() else {
+        return Json(json!({ "ok": true, "signedIn": false })).into_response();
+    };
+    match tokio::task::spawn_blocking(move || bridge.sign_out()).await {
+        Ok(Ok(())) => Json(json!({ "ok": true, "signedIn": false })).into_response(),
+        Ok(Err(e)) => api_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+        Err(e) => api_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
+}

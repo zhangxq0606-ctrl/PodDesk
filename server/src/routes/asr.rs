@@ -388,12 +388,14 @@ async fn run_transcribe(
             dest
         } else if let Some(vid) = ep.video_id.as_deref() {
             send(json!({ "type": "progress", "stage": "正在通过 yt-dlp 下载音轨...", "pct": 0.05 }));
+            let yt_login = state.yt_login.clone();
             asr::with_ytdlp(&state.data_dir, |bin| {
                 let data = state.data_dir.clone();
                 let dir = job_dir.clone();
                 let c = cancel.clone();
                 let v = vid.to_string();
-                async move { asr::youtube_audio(&data, &bin, &v, &dir, c).await }
+                let login = yt_login.clone();
+                async move { asr::youtube_audio(&data, &bin, &v, &dir, c, login).await }
             })
             .await?
         } else {
