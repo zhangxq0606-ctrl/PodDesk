@@ -9,25 +9,187 @@ export function isVideoMediaUrl(url?: string | null): boolean {
 }
 
 const BLOCKED_KEY = "podcast-desk-yt-blocked";
-function readBlockedIds(): string[] {
+export const YT_BLOCKED_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+export const YT_IFRAME_TIMEOUT_MS = 14_000;
+export const MEDIA_STALL_TIMEOUT_MS = 14_000;
+
+export interface BlockedYtEntry {
+  id: string;
+  at: number;
+}
+
+export function parseBlockedEntries(raw: string | null | undefined, now = Date.now()): BlockedYtEntry[] {
+  if (!raw) return [];
   try {
-    return JSON.parse(localStorage.getItem(BLOCKED_KEY) ?? "[]") as string[];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    const latest = new Map<string, number>();
+    for (const item of parsed) {
+      if (
+        item &&
+        typeof item === "object" &&
+        typeof (item as BlockedYtEntry).id === "string" &&
+        typeof (item as BlockedYtEntry).at === "number" &&
+        Number.isFinite((item as BlockedYtEntry).at)
+      ) {
+        const { id, at } = item as BlockedYtEntry;
+        if (id && now - at < YT_BLOCKED_TTL_MS) {
+          const prev = latest.get(id);
+          if (prev === undefined || at > prev) latest.set(id, at);
+        }
+      }
+      // Legacy plain-string entries have no timestamp; let them expire so old blocked videos re-probe once.
+    }
+    return Array.from(latest.entries())
+      .sort((a, b) => a[1] - b[1])
+      .map(([id, at]) => ({ id, at }))
+      .slice(-500);
   } catch {
     return [];
   }
 }
 
-export function wasYtBlocked(videoId?: string): boolean {
-  return !!videoId && readBlockedIds().includes(videoId);
+function readBlockedEntries(now = Date.now()): BlockedYtEntry[] {
+  try {
+    return parseBlockedEntries(localStorage.getItem(BLOCKED_KEY), now);
+  } catch {
+    return [];
+  }
 }
 
-export function markYtBlocked(videoId?: string): void {
-  if (!videoId || wasYtBlocked(videoId)) return;
+function writeBlockedEntries(entries: BlockedYtEntry[]): void {
   try {
-    localStorage.setItem(BLOCKED_KEY, JSON.stringify([...readBlockedIds(), videoId].slice(-500)));
+    localStorage.setItem(BLOCKED_KEY, JSON.stringify(entries.slice(-500)));
   } catch {
     /* ignore */
   }
+}
+
+export function wasYtBlocked(videoId?: string, now = Date.now()): boolean {
+  return !!videoId && readBlockedEntries(now).some((e) => e.id === videoId);
+}
+
+export function markYtBlocked(videoId?: string, now = Date.now()): void {
+  if (!videoId) return;
+  const next = readBlockedEntries(now).filter((e) => e.id !== videoId);
+  next.push({ id: videoId, at: now });
+  writeBlockedEntries(next);
+}
+
+export function unmarkYtBlocked(videoId?: string, now = Date.now()): void {
+  if (!videoId) return;
+  const current = readBlockedEntries(now);
+  const next = current.filter((e) => e.id !== videoId);
+  if (next.length !== current.length) {
+    writeBlockedEntries(next);
+  }
+}
+
+interface InflightStream {
+  ctrl: AbortController;
+  promise: Promise<string>;
+  activeHolders: number;
+}
+
+const inflightStreams = new Map<string, InflightStream>();
+
+function createAbortError(): DOMException {
+  return new DOMException("Aborted", "AbortError");
+}
+
+export function requestYtStreamUrl(
+  episodeId: string,
+  opts?: {
+    fresh?: boolean;
+    signal?: AbortSignal;
+    passive?: boolean;
+    fetcher?: (episodeId: string, fresh: boolean, signal?: AbortSignal) => Promise<string>;
+  },
+): Promise<string> {
+  const fresh = opts?.fresh ?? false;
+  const passive = opts?.passive ?? false;
+  const signal = opts?.signal;
+  const fetcher =
+    opts?.fetcher ??
+    ((id: string, isFresh: boolean, sig?: AbortSignal) =>
+      api.getStreamUrl(id, isFresh, sig).then((res) => res.url));
+
+  if (signal?.aborted) {
+    return Promise.reject(createAbortError());
+  }
+
+  if (fresh) {
+    const stale = inflightStreams.get(episodeId);
+    if (stale) {
+      stale.ctrl.abort();
+      inflightStreams.delete(episodeId);
+    }
+    return fetcher(episodeId, true, signal);
+  }
+
+  let entry = inflightStreams.get(episodeId);
+  if (!entry) {
+    const ctrl = new AbortController();
+    const created: InflightStream = {
+      ctrl,
+      activeHolders: 0,
+      promise: Promise.resolve(""),
+    };
+    created.promise = fetcher(episodeId, false, ctrl.signal).finally(() => {
+      if (inflightStreams.get(episodeId) === created) {
+        inflightStreams.delete(episodeId);
+      }
+    });
+    entry = created;
+    inflightStreams.set(episodeId, entry);
+  }
+
+  if (!passive) {
+    entry.activeHolders += 1;
+  }
+
+  return new Promise<string>((resolve, reject) => {
+    let settled = false;
+    const releaseHolder = () => {
+      if (!passive && entry.activeHolders > 0) {
+        entry.activeHolders -= 1;
+      }
+    };
+    const onAbort = () => {
+      if (settled) return;
+      settled = true;
+      signal?.removeEventListener("abort", onAbort);
+      releaseHolder();
+      if (entry.activeHolders === 0) {
+        entry.ctrl.abort();
+        if (inflightStreams.get(episodeId) === entry) {
+          inflightStreams.delete(episodeId);
+        }
+      }
+      reject(createAbortError());
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+    entry.promise.then(
+      (url) => {
+        if (settled) return;
+        settled = true;
+        signal?.removeEventListener("abort", onAbort);
+        releaseHolder();
+        resolve(url);
+      },
+      (err) => {
+        if (settled) return;
+        settled = true;
+        signal?.removeEventListener("abort", onAbort);
+        releaseHolder();
+        reject(err);
+      },
+    );
+  });
+}
+
+export function warmYtStreamUrl(episodeId: string, signal?: AbortSignal): Promise<string> {
+  return requestYtStreamUrl(episodeId, { fresh: false, signal, passive: true });
 }
 
 declare global {

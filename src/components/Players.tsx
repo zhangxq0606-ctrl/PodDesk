@@ -9,5 +9,6 @@ export {
   stepRate,
   stepVolume,
   toggleMute,
+  warmYtStreamUrl,
   wasYtBlocked,
 } from "./player/playerUtils";

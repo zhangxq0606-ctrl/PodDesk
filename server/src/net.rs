@@ -8,6 +8,8 @@ use std::time::Duration;
 pub const UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) PodcastDesk/0.1";
 
 static CLIENT: Lazy<RwLock<(String, reqwest::Client)>> = Lazy::new(|| RwLock::new((String::new(), build("").unwrap())));
+static SYSTEM_PROXY_CACHE: Lazy<RwLock<(Option<std::time::Instant>, String)>> =
+    Lazy::new(|| RwLock::new((None, String::new())));
 static GITHUB_MIRROR: Lazy<RwLock<String>> = Lazy::new(|| RwLock::new(String::new()));
 /// Ignores every proxy: the fallback when the system proxy (Clash and the like, on 127.0.0.1) isn't running.
 static DIRECT: Lazy<reqwest::Client> = Lazy::new(|| base().no_proxy().build().unwrap());
@@ -40,6 +42,7 @@ pub fn set_proxy(proxy: &str) -> Result<()> {
     let trimmed = proxy.trim().to_string();
     let client = build(&trimmed)?;
     *CLIENT.write().unwrap_or_else(|e| e.into_inner()) = (trimmed, client);
+    *SYSTEM_PROXY_CACHE.write().unwrap_or_else(|e| e.into_inner()) = (None, String::new());
     Ok(())
 }
 
@@ -94,14 +97,13 @@ pub fn effective_proxy() -> String {
     if !own.is_empty() {
         return own;
     }
-    static CACHE: Lazy<RwLock<(Option<std::time::Instant>, String)>> = Lazy::new(|| RwLock::new((None, String::new())));
-    if let Some(at) = CACHE.read().unwrap_or_else(|e| e.into_inner()).0 {
+    if let Some(at) = SYSTEM_PROXY_CACHE.read().unwrap_or_else(|e| e.into_inner()).0 {
         if at.elapsed().as_secs() < 30 {
-            return CACHE.read().unwrap_or_else(|e| e.into_inner()).1.clone();
+            return SYSTEM_PROXY_CACHE.read().unwrap_or_else(|e| e.into_inner()).1.clone();
         }
     }
     let found = system_proxy().unwrap_or_default();
-    *CACHE.write().unwrap_or_else(|e| e.into_inner()) = (Some(std::time::Instant::now()), found.clone());
+    *SYSTEM_PROXY_CACHE.write().unwrap_or_else(|e| e.into_inner()) = (Some(std::time::Instant::now()), found.clone());
     found
 }
 

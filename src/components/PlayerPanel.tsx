@@ -30,7 +30,7 @@ import { useEpisodeTitleDisplay } from "../lib/zh";
 import { useStore } from "../store";
 import { ChatPanel, EpisodeOverviewCard, GuideTimelinePanel } from "./ChatPanel";
 import { SkeletonEpisode } from "./Illustrations";
-import { Controls, isVideoMediaUrl, MediaStage } from "./Players";
+import { Controls, isVideoMediaUrl, MediaStage, warmYtStreamUrl, wasYtBlocked } from "./Players";
 import { TopBar } from "./Sidebar";
 import { SplitRatioDivider, Splitter } from "./Splitter";
 import { TranscriptPanel } from "./TranscriptPanel";
@@ -189,8 +189,20 @@ export function EpisodeView({ id }: { id: string }) {
 
   useEffect(() => {
     let alive = true;
+    let warmedForEpisode = false;
+    let warmAbort: AbortController | null = null;
+    const maybeWarmBlocked = (target: Episode) => {
+      if (warmedForEpisode || !target.videoId || !wasYtBlocked(target.videoId)) return;
+      warmedForEpisode = true;
+      warmAbort = new AbortController();
+      void warmYtStreamUrl(target.id, warmAbort.signal).catch(() => {});
+    };
+
     const hit = useStore.getState().episodeCache[id];
-    if (hit) void loadEpisodeTranscript(hit);
+    if (hit) {
+      void loadEpisodeTranscript(hit);
+      maybeWarmBlocked(hit);
+    }
     void api
       .getEpisode(id)
       .then((full) => {
@@ -198,6 +210,7 @@ export function EpisodeView({ id }: { id: string }) {
         setEp(full);
         useStore.getState().touchEpisodeLocal(full);
         void loadEpisodeTranscript(full);
+        maybeWarmBlocked(full);
         const st = useStore.getState();
         if (st.current?.id !== full.id && !st.playing) {
           load(full);
@@ -208,6 +221,7 @@ export function EpisodeView({ id }: { id: string }) {
       });
     return () => {
       alive = false;
+      warmAbort?.abort();
     };
   }, [id, load]);
 

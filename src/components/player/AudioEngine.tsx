@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useStore } from "../../store";
-import { isVideoMediaUrl, persistProgress, resetSavedProgress, trackTime } from "./playerUtils";
+import { isVideoMediaUrl, MEDIA_STALL_TIMEOUT_MS, persistProgress, resetSavedProgress, trackTime } from "./playerUtils";
 
 /** Root-level audio element so podcasts keep playing when browsing other views. */
 export function AudioEngine() {
@@ -11,23 +11,50 @@ export function AudioEngine() {
   const ref = useRef<HTMLAudioElement>(null);
 
   const audio = current && !current.videoId && !isVideoMediaUrl(current.audioUrl) ? current : null;
+  const loadingSince = useStore((s) => (audio && s.current?.id === audio.id ? s.loadingSince : null));
 
   useEffect(() => {
     const el = ref.current;
     if (!el || !audio) return;
-    resetSavedProgress(audio.progress ?? 0);
+    const s0 = useStore.getState();
+    resetSavedProgress(s0.current?.id === audio.id ? s0.time : (audio.progress ?? 0));
     const handle = {
       episodeId: audio.id,
       seek: (t: number) => {
+        const s = useStore.getState();
+        if (s.current?.id === audio.id) {
+          s.set({ time: t, loadingSince: el.readyState < 3 ? Date.now() : null });
+        }
         el.currentTime = t;
-        void el.play().catch(() => {});
+        void el.play().catch(() => {
+          if (ref.current === el && useStore.getState().current?.id === audio.id) {
+            useStore.getState().clearPlaybackPending(audio.id);
+          }
+        });
       },
       toggle: () => {
-        if (el.paused) void el.play().catch(() => {});
-        else el.pause();
+        if (el.paused) {
+          if (el.readyState < 3 && useStore.getState().current?.id === audio.id) {
+            useStore.getState().set({ loadingSince: Date.now() });
+          }
+          void el.play().catch(() => {
+            if (ref.current === el && useStore.getState().current?.id === audio.id) {
+              useStore.getState().clearPlaybackPending(audio.id);
+            }
+          });
+        } else {
+          el.pause();
+        }
       },
       play: () => {
-        void el.play().catch(() => {});
+        if (el.readyState < 3 && useStore.getState().current?.id === audio.id) {
+          useStore.getState().set({ loadingSince: Date.now() });
+        }
+        void el.play().catch(() => {
+          if (ref.current === el && useStore.getState().current?.id === audio.id) {
+            useStore.getState().clearPlaybackPending(audio.id);
+          }
+        });
       },
       setRate: (r: number) => {
         el.playbackRate = r;
@@ -38,6 +65,27 @@ export function AudioEngine() {
       useStore.getState().withdrawPlayer(handle);
     };
   }, [audio?.id]);
+
+  useEffect(() => {
+    if (!audio || loadingSince == null) return;
+    const remain = Math.max(0, MEDIA_STALL_TIMEOUT_MS - (Date.now() - loadingSince));
+    const timer = window.setTimeout(() => {
+      const s = useStore.getState();
+      if (s.current?.id !== audio.id || s.loadingSince == null) return;
+      const el = ref.current;
+      if (el && !el.paused && el.readyState >= 3) {
+        s.set({ loadingSince: null });
+        return;
+      }
+      el?.pause();
+      s.clearPlaybackPending(audio.id);
+      s.notify("音频加载或缓冲超时，可能是网络或源地址异常", false, {
+        label: "检查网络",
+        run: () => useStore.getState().openSettings("network"),
+      });
+    }, remain);
+    return () => window.clearTimeout(timer);
+  }, [audio?.id, loadingSince]);
 
   useEffect(() => {
     if (ref.current) ref.current.playbackRate = rate;
@@ -71,6 +119,12 @@ export function AudioEngine() {
         const s = useStore.getState();
         s.set({ playing: true, loadingSince: ref.current && ref.current.readyState < 3 ? Date.now() : null });
       }}
+      onCanPlay={(e) => {
+        const s = useStore.getState();
+        if (!e.currentTarget.paused && s.current?.id === audio.id && s.loadingSince != null) {
+          s.set({ loadingSince: null });
+        }
+      }}
       onWaiting={() => useStore.getState().set({ loadingSince: Date.now() })}
       onPlaying={() => useStore.getState().set({ loadingSince: null })}
       onPause={(e) => {
@@ -82,7 +136,7 @@ export function AudioEngine() {
         persistProgress(audio, e.currentTarget.duration || e.currentTarget.currentTime);
       }}
       onError={() => {
-        useStore.getState().set({ playing: false, loadingSince: null });
+        useStore.getState().clearPlaybackPending(audio.id);
         useStore.getState().notify("音频加载失败，可能是网络或源地址失效", false, {
           label: "检查网络",
           run: () => useStore.getState().openSettings("network"),

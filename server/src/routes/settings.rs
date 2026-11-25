@@ -25,6 +25,7 @@ pub async fn save_settings(
         if let Err(e) = net::set_proxy(p) {
             return api_error(StatusCode::BAD_REQUEST, e.to_string());
         }
+        asr::streams::clear();
     }
     if let Some(m) = patch.get("githubMirror") {
         if let Err(e) = net::set_github_mirror(m) {

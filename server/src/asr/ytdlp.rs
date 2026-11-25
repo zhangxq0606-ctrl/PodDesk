@@ -450,8 +450,16 @@ pub mod streams {
     use std::sync::Mutex;
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+    struct StreamEntry {
+        url: String,
+        until: u64,
+        #[serde(default)]
+        proxy: String,
+    }
+
     static FILE: once_cell::sync::OnceCell<PathBuf> = once_cell::sync::OnceCell::new();
-    static MAP: once_cell::sync::Lazy<Mutex<HashMap<String, (String, u64)>>> = once_cell::sync::Lazy::new(|| {
+    static MAP: once_cell::sync::Lazy<Mutex<HashMap<String, StreamEntry>>> = once_cell::sync::Lazy::new(|| {
         let saved = FILE
             .get()
             .and_then(|f| std::fs::read(f).ok())
@@ -466,6 +474,12 @@ pub mod streams {
         SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
     }
 
+    fn persist(map: &HashMap<String, StreamEntry>) {
+        if let (Some(f), Ok(b)) = (FILE.get(), serde_json::to_vec(map)) {
+            let _ = std::fs::write(f, b);
+        }
+    }
+
     pub fn init(data: &std::path::Path) {
         let _ = FILE.set(data.join("streams.json"));
     }
@@ -477,30 +491,62 @@ pub mod streams {
     }
 
     pub fn get(key: &str) -> Option<String> {
-        let map = MAP.lock().unwrap_or_else(|e| e.into_inner());
-        map.get(key).filter(|(_, until)| *until > now()).map(|(u, _)| u.clone())
+        let proxy = crate::net::effective_proxy();
+        get_for_proxy(key, &proxy)
+    }
+
+    pub fn get_for_proxy(key: &str, proxy: &str) -> Option<String> {
+        let t = now();
+        let mut map = MAP.lock().unwrap_or_else(|e| e.into_inner());
+        let entry = map.get(key)?;
+        if entry.until > t && entry.proxy == proxy {
+            return Some(entry.url.clone());
+        }
+        map.remove(key);
+        persist(&map);
+        None
     }
 
     pub fn forget(key: &str) {
         let mut map = MAP.lock().unwrap_or_else(|e| e.into_inner());
         if map.remove(key).is_some() {
-            if let (Some(f), Ok(b)) = (FILE.get(), serde_json::to_vec(&*map)) {
-                let _ = std::fs::write(f, b);
+            persist(&map);
+        }
+    }
+
+    pub fn clear() {
+        let mut map = MAP.lock().unwrap_or_else(|e| e.into_inner());
+        if !map.is_empty() {
+            map.clear();
+            persist(&map);
+        } else if let Some(f) = FILE.get() {
+            if f.exists() {
+                let _ = std::fs::write(f, b"{}");
             }
         }
     }
 
     pub fn put(key: &str, url: &str) {
+        let proxy = crate::net::effective_proxy();
+        put_for_proxy(key, url, &proxy);
+    }
+
+    pub fn put_for_proxy(key: &str, url: &str, proxy: &str) {
         let t = now();
         let until = expiry(url).map(|e| e.saturating_sub(MARGIN)).unwrap_or(t + DEFAULT_LIFE);
         let mut map = MAP.lock().unwrap_or_else(|e| e.into_inner());
-        map.retain(|_, (_, u)| *u > t);
+        map.retain(|_, e| e.until > t && e.proxy == proxy);
         if until > t {
-            map.insert(key.to_string(), (url.to_string(), until));
+            map.insert(
+                key.to_string(),
+                StreamEntry {
+                    url: url.to_string(),
+                    until,
+                    proxy: proxy.to_string(),
+                },
+            );
         }
-        if let (Some(f), Ok(b)) = (FILE.get(), serde_json::to_vec(&*map)) {
-            let _ = std::fs::write(f, b);
-        }
+        persist(&map);
     }
 
     #[cfg(test)]
@@ -520,10 +566,29 @@ pub mod streams {
         #[test]
         fn forgets_cached_stream_url() {
             let k = format!("forget-test-{}", uuid::Uuid::new_v4());
-            put(&k, "https://example.com/video.mp4");
-            assert_eq!(get(&k).as_deref(), Some("https://example.com/video.mp4"));
+            put_for_proxy(&k, "https://example.com/video.mp4", "http://127.0.0.1:7890");
+            assert_eq!(
+                get_for_proxy(&k, "http://127.0.0.1:7890").as_deref(),
+                Some("https://example.com/video.mp4")
+            );
             forget(&k);
-            assert!(get(&k).is_none());
+            assert!(get_for_proxy(&k, "http://127.0.0.1:7890").is_none());
+        }
+
+        #[test]
+        fn invalidates_stream_url_when_proxy_changes_or_clears() {
+            let k1 = format!("proxy-test-1-{}", uuid::Uuid::new_v4());
+            let k2 = format!("proxy-test-2-{}", uuid::Uuid::new_v4());
+            put_for_proxy(&k1, "https://example.com/v1.mp4", "http://127.0.0.1:7890");
+            assert_eq!(
+                get_for_proxy(&k1, "http://127.0.0.1:7890").as_deref(),
+                Some("https://example.com/v1.mp4")
+            );
+            assert!(get_for_proxy(&k1, "http://127.0.0.1:7897").is_none());
+
+            put_for_proxy(&k2, "https://example.com/v2.mp4", "http://127.0.0.1:7897");
+            clear();
+            assert!(get_for_proxy(&k2, "http://127.0.0.1:7897").is_none());
         }
     }
 }

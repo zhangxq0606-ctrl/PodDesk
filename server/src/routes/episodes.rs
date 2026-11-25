@@ -46,8 +46,41 @@ pub async fn recent_episodes(State(state): State<Arc<AppState>>) -> Response {
     }
 }
 
+fn spawn_episode_pub_backfill(state: Arc<AppState>, ep_id: String, video_id: String) {
+    let key = format!("ep:{ep_id}");
+    {
+        let mut active = state.pub_backfills.lock().unwrap_or_else(|e| e.into_inner());
+        if !active.insert(key.clone()) {
+            return;
+        }
+    }
+    tokio::spawn(async move {
+        struct EpBackfillGuard {
+            state: Arc<AppState>,
+            key: String,
+        }
+        impl Drop for EpBackfillGuard {
+            fn drop(&mut self) {
+                self.state
+                    .pub_backfills
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .remove(&self.key);
+            }
+        }
+        let _guard = EpBackfillGuard { state: state.clone(), key };
+        if let Some(published) = youtube::fetch_publish_date(&video_id).await {
+            let conn = state.db_lock();
+            if db::get_episode(&conn, &ep_id).ok().flatten().is_some() {
+                let _ = db::update_episode_published(&conn, &ep_id, Some(published));
+                let _ = db::set_blob(&conn, &ep_id, "yt-pub-v1", "1");
+            }
+        }
+    });
+}
+
 pub async fn get_episode(State(state): State<Arc<AppState>>, AxumPath(id): AxumPath<String>) -> Response {
-    let (mut ep, backfill_vid) = {
+    let (ep, backfill_vid) = {
         let conn = state.db_lock();
         match db::get_episode(&conn, &id) {
             Ok(Some(ep)) => {
@@ -68,16 +101,7 @@ pub async fn get_episode(State(state): State<Arc<AppState>>, AxumPath(id): AxumP
     };
 
     if let Some(vid) = backfill_vid {
-        if let Some(published) = youtube::fetch_publish_date(&vid).await {
-            let conn = state.db_lock();
-            let _ = db::update_episode_published(&conn, &id, Some(published));
-            let _ = db::set_blob(&conn, &id, "yt-pub-v1", "1");
-            if let Ok(Some(updated)) = db::get_episode(&conn, &id) {
-                ep = updated;
-            } else {
-                ep.published = Some(published);
-            }
-        }
+        spawn_episode_pub_backfill(state, id, vid);
     }
 
     Json(ep).into_response()
@@ -559,6 +583,8 @@ pub async fn episode_stream_url(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::{HashMap, HashSet};
+    use std::sync::Mutex;
 
     #[test]
     fn imports_srt_and_plain_text_cleanly() {
@@ -582,5 +608,43 @@ mod tests {
         assert_eq!(allowed_media_ext("talk.m4a").as_deref(), Some("m4a"));
         assert_eq!(allowed_media_ext("video.mp4").as_deref(), Some("mp4"));
         assert_eq!(allowed_media_ext("script.exe"), None);
+    }
+
+    #[tokio::test]
+    async fn get_episode_returns_immediately_without_waiting_for_yt_pub_backfill() {
+        let path = std::env::temp_dir().join(format!("pdesk-ep-test-{}.sqlite", uuid::Uuid::new_v4()));
+        let mut conn = db::open(&path).unwrap();
+        let ep = Episode {
+            id: "ep-old-yt".into(),
+            show_id: "single".into(),
+            guid: "vid-old".into(),
+            title: "Old Video".into(),
+            video_id: Some("dQw4w9WgXcQ".into()),
+            ..Default::default()
+        };
+        db::upsert_episodes(&mut conn, std::slice::from_ref(&ep)).unwrap();
+        let state = Arc::new(AppState {
+            db: Mutex::new(conn),
+            data_dir: std::env::temp_dir(),
+            port: 14327,
+            jobs: Mutex::new(HashMap::new()),
+            pub_backfills: Mutex::new(HashSet::new()),
+            quit_tx: Mutex::new(None),
+            yt_login: None,
+        });
+
+        let start = std::time::Instant::now();
+        let resp = get_episode(State(state.clone()), AxumPath("ep-old-yt".into())).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert!(start.elapsed() < std::time::Duration::from_millis(500));
+
+        // Second immediate call should not panic or block; pub_backfills deduplicates in-flight work.
+        let resp2 = get_episode(State(state.clone()), AxumPath("ep-old-yt".into())).await;
+        assert_eq!(resp2.status(), StatusCode::OK);
+
+        drop(state);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path.with_extension("sqlite-wal"));
+        let _ = std::fs::remove_file(path.with_extension("sqlite-shm"));
     }
 }

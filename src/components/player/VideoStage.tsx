@@ -9,10 +9,13 @@ import {
   hideYouTubeCaptions,
   loadYouTubeApi,
   markYtBlocked,
+  MEDIA_STALL_TIMEOUT_MS,
   persistProgress,
+  requestYtStreamUrl,
   resetSavedProgress,
   trackTime,
   wasYtBlocked,
+  YT_IFRAME_TIMEOUT_MS,
   type YTPlayerInstance,
 } from "./playerUtils";
 
@@ -38,28 +41,65 @@ function SubtitleOverlay({ ep }: { ep: Episode }) {
   );
 }
 
-export function LocalVideoStage({ ep, src, onFail }: { ep: Episode; src: string; onFail?: () => void }) {
+export function LocalVideoStage({
+  ep,
+  src,
+  onFail,
+}: {
+  ep: Episode;
+  src: string;
+  onFail?: (reason?: "error" | "timeout") => void;
+}) {
   const ref = useRef<HTMLVideoElement>(null);
+  const onFailRef = useRef(onFail);
+  onFailRef.current = onFail;
   const rate = useStore((s) => s.prefs.playbackRate);
   const volume = useStore((s) => s.prefs.volume);
   const muted = useStore((s) => s.prefs.muted);
+  const loadingSince = useStore((s) => (s.current?.id === ep.id ? s.loadingSince : null));
 
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    resetSavedProgress(ep.progress ?? 0);
+    const s0 = useStore.getState();
+    resetSavedProgress(s0.current?.id === ep.id ? s0.time : (ep.progress ?? 0));
     const handle = {
       episodeId: ep.id,
       seek: (t: number) => {
+        const s = useStore.getState();
+        if (s.current?.id === ep.id) {
+          s.set({ time: t, loadingSince: el.readyState < 3 ? Date.now() : null });
+        }
         el.currentTime = t;
-        void el.play().catch(() => {});
+        void el.play().catch(() => {
+          if (ref.current === el && useStore.getState().current?.id === ep.id) {
+            useStore.getState().clearPlaybackPending(ep.id);
+          }
+        });
       },
       toggle: () => {
-        if (el.paused) void el.play().catch(() => {});
-        else el.pause();
+        if (el.paused) {
+          if (el.readyState < 3 && useStore.getState().current?.id === ep.id) {
+            useStore.getState().set({ loadingSince: Date.now() });
+          }
+          void el.play().catch(() => {
+            if (ref.current === el && useStore.getState().current?.id === ep.id) {
+              useStore.getState().clearPlaybackPending(ep.id);
+            }
+          });
+        } else {
+          el.pause();
+        }
       },
       play: () => {
-        void el.play().catch(() => {});
+        if (el.readyState < 3 && useStore.getState().current?.id === ep.id) {
+          useStore.getState().set({ loadingSince: Date.now() });
+        }
+        void el.play().catch(() => {
+          if (ref.current === el && useStore.getState().current?.id === ep.id) {
+            useStore.getState().clearPlaybackPending(ep.id);
+          }
+        });
       },
       setRate: (r: number) => {
         el.playbackRate = r;
@@ -71,6 +111,28 @@ export function LocalVideoStage({ ep, src, onFail }: { ep: Episode; src: string;
       useStore.getState().withdrawPlayer(handle);
     };
   }, [ep.id, src]);
+
+  useEffect(() => {
+    if (loadingSince == null) return;
+    const remain = Math.max(0, MEDIA_STALL_TIMEOUT_MS - (Date.now() - loadingSince));
+    const timer = window.setTimeout(() => {
+      const s = useStore.getState();
+      if (s.current?.id !== ep.id || s.loadingSince == null) return;
+      const el = ref.current;
+      if (el && !el.paused && el.readyState >= 3) {
+        s.set({ loadingSince: null });
+        return;
+      }
+      el?.pause();
+      if (onFailRef.current) {
+        onFailRef.current("timeout");
+      } else {
+        s.clearPlaybackPending(ep.id);
+        s.notify("视频加载或缓冲超时，请检查文件或网络后重试", false);
+      }
+    }, remain);
+    return () => window.clearTimeout(timer);
+  }, [ep.id, loadingSince]);
 
   useEffect(() => {
     if (ref.current) ref.current.playbackRate = rate;
@@ -106,6 +168,12 @@ export function LocalVideoStage({ ep, src, onFail }: { ep: Episode; src: string;
             loadingSince: ref.current && ref.current.readyState < 3 ? Date.now() : null,
           })
         }
+        onCanPlay={(e) => {
+          const s = useStore.getState();
+          if (!e.currentTarget.paused && s.current?.id === ep.id && s.loadingSince != null) {
+            s.set({ loadingSince: null });
+          }
+        }}
         onWaiting={() => useStore.getState().set({ loadingSince: Date.now() })}
         onPlaying={() => useStore.getState().set({ loadingSince: null })}
         onPause={(e) => {
@@ -116,7 +184,15 @@ export function LocalVideoStage({ ep, src, onFail }: { ep: Episode; src: string;
           useStore.getState().set({ playing: false, loadingSince: null });
           persistProgress(ep, e.currentTarget.duration || e.currentTarget.currentTime);
         }}
-        onError={() => onFail?.()}
+        onError={() => {
+          if (useStore.getState().current?.id !== ep.id) return;
+          if (onFailRef.current) {
+            onFailRef.current("error");
+          } else {
+            useStore.getState().clearPlaybackPending(ep.id);
+            useStore.getState().notify("本地视频加载失败，请检查文件是否完整", false);
+          }
+        }}
       />
       <SubtitleOverlay ep={ep} />
     </div>
@@ -127,6 +203,9 @@ export function YouTubeStage({ ep }: { ep: Episode }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<YTPlayerInstance | null>(null);
   const directAbortRef = useRef<AbortController | null>(null);
+  const autoHealedRef = useRef(false);
+  const mountedRef = useRef(true);
+  const hungIframeRef = useRef<((msg: string) => void) | null>(null);
   const rate = useStore((s) => s.prefs.playbackRate);
   const volume = useStore((s) => s.prefs.volume);
   const muted = useStore((s) => s.prefs.muted);
@@ -140,40 +219,93 @@ export function YouTubeStage({ ep }: { ep: Episode }) {
   const errRef = useRef<string | null>(null);
   errRef.current = errMsg;
 
+  const iframeLoadingSince = useStore((s) =>
+    !fallbackUrl && !loadingStream && !errMsg && s.current?.id === ep.id ? s.loadingSince : null,
+  );
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  const preserveResumeIntent = () => {
+    const s = useStore.getState();
+    if (s.current?.id !== ep.id) return;
+    const resumeAt = s.seekWhenReady?.id === ep.id ? s.seekWhenReady.at : s.time;
+    const wantsPlay =
+      s.playing || !!s.loadingSince || s.playWhenReady === ep.id || s.seekWhenReady?.id === ep.id;
+    s.set({
+      playing: false,
+      loadingSince: null,
+      ...(wantsPlay
+        ? resumeAt > 3
+          ? { seekWhenReady: { id: ep.id, at: resumeAt }, playWhenReady: null }
+          : { playWhenReady: ep.id, seekWhenReady: null }
+        : {}),
+    });
+  };
+
   const fetchDirect = async (fresh = false) => {
-    if (loadingStream) return;
+    if (!fresh && directAbortRef.current) return;
     directAbortRef.current?.abort();
     const ctrl = new AbortController();
     directAbortRef.current = ctrl;
+    preserveResumeIntent();
     setLoadingStream(true);
     setErrMsg(null);
     try {
-      const res = await api.getStreamUrl(ep.id, fresh, ctrl.signal);
-      if (ctrl.signal.aborted) return;
+      const url = await requestYtStreamUrl(ep.id, { fresh, signal: ctrl.signal });
+      if (ctrl.signal.aborted || !mountedRef.current) return;
       playerRef.current?.destroy();
       playerRef.current = null;
-      setFallbackUrl(res.url);
+      setFallbackUrl(url);
     } catch (err) {
+      if (!mountedRef.current) return;
+      useStore.getState().clearPlaybackPending(ep.id);
       if ((err instanceof DOMException && err.name === "AbortError") || ctrl.signal.aborted) {
         setErrMsg("已取消获取直链，可重试或前往 YouTube 打开。");
       } else {
         setErrMsg(err instanceof Error ? err.message : "获取直链失败");
       }
     } finally {
-      if (directAbortRef.current === ctrl) directAbortRef.current = null;
-      setLoadingStream(false);
+      if (directAbortRef.current === ctrl) {
+        directAbortRef.current = null;
+        if (mountedRef.current) setLoadingStream(false);
+      }
     }
   };
 
   const cancelDirect = () => {
     directAbortRef.current?.abort();
+    directAbortRef.current = null;
+    useStore.getState().clearPlaybackPending(ep.id);
     setLoadingStream(false);
     setErrMsg("已取消获取直链，可重试或前往 YouTube 打开。");
+  };
+
+  const handleDirectFail = (reason: "error" | "timeout" = "error") => {
+    setFallbackUrl(null);
+    if (!autoHealedRef.current) {
+      autoHealedRef.current = true;
+      preserveResumeIntent();
+      notify(reason === "timeout" ? "直链缓冲超时，正在重新获取直链并续播…" : "直链已失效，正在重新获取直链并续播…");
+      void fetchDirect(true);
+      return;
+    }
+    useStore.getState().clearPlaybackPending(ep.id);
+    setErrMsg(
+      reason === "timeout"
+        ? "直链视频加载或缓冲超时，可点击重新获取直链。"
+        : "直链视频加载失败或已过期，可点击重新获取直链。",
+    );
   };
 
   useEffect(() => {
     const onLoginChanged = () => {
       if (errRef.current && /bot|人机|验证|sign in|cookies|登录 YouTube/i.test(errRef.current)) {
+        autoHealedRef.current = false;
         void fetchDirect(true);
       }
     };
@@ -183,6 +315,9 @@ export function YouTubeStage({ ep }: { ep: Episode }) {
 
   useEffect(() => {
     directAbortRef.current?.abort();
+    directAbortRef.current = null;
+    autoHealedRef.current = false;
+    hungIframeRef.current = null;
     setFallbackUrl(null);
     setErrMsg(null);
     if (wasYtBlocked(ep.videoId)) {
@@ -194,6 +329,7 @@ export function YouTubeStage({ ep }: { ep: Episode }) {
 
     let disposed = false;
     let pollTimer: number | undefined;
+    let readyTimer: number | undefined;
     let handle: {
       episodeId: string;
       seek: (t: number) => void;
@@ -202,7 +338,30 @@ export function YouTubeStage({ ep }: { ep: Episode }) {
       setRate: (r: number) => void;
     } | null = null;
 
+    const fallbackFromHungIframe = (msg: string) => {
+      if (disposed) return;
+      disposed = true;
+      window.clearTimeout(readyTimer);
+      window.clearInterval(pollTimer);
+      preserveResumeIntent();
+      try {
+        const curT = playerRef.current?.getCurrentTime?.();
+        if (typeof curT === "number" && curT > 0) persistProgress(ep, curT);
+        playerRef.current?.destroy();
+      } catch {
+        /* ignore */
+      }
+      playerRef.current = null;
+      if (handle) useStore.getState().withdrawPlayer(handle);
+      notify(msg);
+      void fetchDirect(false);
+    };
+    hungIframeRef.current = fallbackFromHungIframe;
+
     resetSavedProgress(ep.progress ?? 0);
+    readyTimer = window.setTimeout(() => {
+      fallbackFromHungIframe("YouTube 嵌入加载超时，正在自动切换直链播放…");
+    }, YT_IFRAME_TIMEOUT_MS);
 
     void loadYouTubeApi()
       .then((YT) => {
@@ -231,6 +390,7 @@ export function YouTubeStage({ ep }: { ep: Episode }) {
           events: {
             onReady: () => {
               if (disposed) return;
+              window.clearTimeout(readyTimer);
               playerRef.current = player;
               hideYouTubeCaptions(player);
               const prefs = useStore.getState().prefs;
@@ -242,6 +402,10 @@ export function YouTubeStage({ ep }: { ep: Episode }) {
               handle = {
                 episodeId: ep.id,
                 seek: (t: number) => {
+                  const s = useStore.getState();
+                  if (s.current?.id === ep.id) {
+                    s.set({ time: t, loadingSince: Date.now() });
+                  }
                   player.seekTo(t, true);
                   player.playVideo();
                 },
@@ -268,7 +432,7 @@ export function YouTubeStage({ ep }: { ep: Episode }) {
               }, 250);
             },
             onStateChange: (ev) => {
-              if (useStore.getState().current?.id !== ep.id) return;
+              if (disposed || useStore.getState().current?.id !== ep.id) return;
               if (ev.data === 3) useStore.getState().set({ loadingSince: Date.now() });
               else if (ev.data === 1 || ev.data === 2 || ev.data === 0) {
                 useStore.getState().set({ loadingSince: null });
@@ -282,11 +446,22 @@ export function YouTubeStage({ ep }: { ep: Episode }) {
             },
             onError: (ev) => {
               if (disposed) return;
+              window.clearTimeout(readyTimer);
               if (ev.data === 101 || ev.data === 150) markYtBlocked(ep.videoId);
               if ([100, 101, 150, 152, 153].includes(ev.data)) {
+                disposed = true;
+                window.clearInterval(pollTimer);
+                preserveResumeIntent();
+                try {
+                  playerRef.current?.destroy();
+                } catch {
+                  /* ignore */
+                }
+                playerRef.current = null;
+                if (handle) useStore.getState().withdrawPlayer(handle);
                 void fetchDirect(false);
               } else {
-                useStore.getState().set({ loadingSince: null });
+                useStore.getState().clearPlaybackPending(ep.id);
                 setErrMsg(`YouTube 播放器报错（错误码 ${ev.data}），可尝试切换 yt-dlp 直链播放。`);
               }
             },
@@ -294,11 +469,17 @@ export function YouTubeStage({ ep }: { ep: Episode }) {
         });
       })
       .catch((err) => {
-        if (!disposed) setErrMsg(err instanceof Error ? err.message : "YouTube 播放器加载失败");
+        if (!disposed) {
+          window.clearTimeout(readyTimer);
+          useStore.getState().clearPlaybackPending(ep.id);
+          setErrMsg(err instanceof Error ? err.message : "YouTube 播放器加载失败");
+        }
       });
 
     return () => {
       disposed = true;
+      hungIframeRef.current = null;
+      window.clearTimeout(readyTimer);
       directAbortRef.current?.abort();
       window.clearInterval(pollTimer);
       try {
@@ -312,6 +493,17 @@ export function YouTubeStage({ ep }: { ep: Episode }) {
       if (handle) useStore.getState().withdrawPlayer(handle);
     };
   }, [ep.id, ep.videoId]);
+
+  useEffect(() => {
+    if (iframeLoadingSince == null) return;
+    const remain = Math.max(0, YT_IFRAME_TIMEOUT_MS - (Date.now() - iframeLoadingSince));
+    const timer = window.setTimeout(() => {
+      const s = useStore.getState();
+      if (s.current?.id !== ep.id || s.loadingSince == null) return;
+      hungIframeRef.current?.("YouTube 嵌入缓冲超时，正在自动切换直链播放…");
+    }, remain);
+    return () => window.clearTimeout(timer);
+  }, [ep.id, iframeLoadingSince]);
 
   useEffect(() => {
     playerRef.current?.setPlaybackRate?.(rate);
@@ -330,10 +522,7 @@ export function YouTubeStage({ ep }: { ep: Episode }) {
       <LocalVideoStage
         ep={ep}
         src={fallbackUrl}
-        onFail={() => {
-          setFallbackUrl(null);
-          setErrMsg("直链视频加载失败或已过期，可点击重新获取直链。");
-        }}
+        onFail={(reason) => handleDirectFail(reason)}
       />
     );
   }
@@ -371,7 +560,19 @@ export function YouTubeStage({ ep }: { ep: Episode }) {
               <button
                 type="button"
                 className={isBot && health?.ytLoginSupported ? "btn sm" : "btn sm primary"}
-                onClick={() => void fetchDirect(true)}
+                onClick={() => {
+                  autoHealedRef.current = false;
+                  const s = useStore.getState();
+                  if (s.current?.id === ep.id) {
+                    const resumeAt = s.time > 3 ? s.time : ep.progress;
+                    if (resumeAt > 3) {
+                      s.seekToEpisode(ep, resumeAt);
+                    } else {
+                      s.playSoon(ep.id);
+                    }
+                  }
+                  void fetchDirect(true);
+                }}
               >
                 <Tv size={14} /> 切换直链播放 (yt-dlp)
               </button>

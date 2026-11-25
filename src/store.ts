@@ -227,6 +227,7 @@ interface AppStore {
   withdrawPlayer: (handle: PlayerHandle) => void;
   seekToEpisode: (ep: Episode, seconds: number) => void;
   playSoon: (id: string) => void;
+  clearPlaybackPending: (episodeId?: string) => void;
   closeMiniPlayer: () => void;
 
   savePrefs: (patch: Partial<Prefs>) => void;
@@ -400,14 +401,16 @@ export const useStore = create<AppStore>((set, get) => ({
   load: (ep) => {
     const cur = get().current;
     if (cur?.id === ep.id && cur.videoId === ep.videoId) return;
-    set({
+    set((s) => ({
       current: ep,
       playing: false,
       time: ep.progress ?? 0,
       length: ep.duration ?? 0,
       loadingSince: null,
       player: null,
-    });
+      playWhenReady: s.playWhenReady === ep.id ? s.playWhenReady : null,
+      seekWhenReady: s.seekWhenReady?.id === ep.id ? s.seekWhenReady : null,
+    }));
   },
 
   offerPlayer: (handle, meta) => {
@@ -441,7 +444,7 @@ export const useStore = create<AppStore>((set, get) => ({
       if (s.player) {
         s.player.seek(target);
       } else {
-        set({ seekWhenReady: { id: ep.id, at: target }, playWhenReady: null });
+        set({ seekWhenReady: { id: ep.id, at: target }, playWhenReady: null, loadingSince: Date.now() });
       }
       return;
     }
@@ -459,12 +462,26 @@ export const useStore = create<AppStore>((set, get) => ({
 
   playSoon: (id) => {
     const s = get();
-    set({ loadingSince: Date.now() });
+    set({
+      loadingSince: Date.now(),
+      seekWhenReady: s.seekWhenReady?.id === id ? s.seekWhenReady : null,
+    });
     if (s.current?.id === id && s.player) {
       s.player.play();
       return;
     }
     set({ playWhenReady: id });
+  },
+
+  clearPlaybackPending: (episodeId) => {
+    const s = get();
+    if (episodeId && s.current?.id !== episodeId) return;
+    set({
+      loadingSince: null,
+      playing: false,
+      playWhenReady: null,
+      seekWhenReady: null,
+    });
   },
 
   closeMiniPlayer: () => {
@@ -745,7 +762,18 @@ export const useStore = create<AppStore>((set, get) => ({
         latestEpisodes: s.latestEpisodes.filter((e) => e.id !== id),
         episodeCache: nextCache,
         showEpisodes: nextShowEps,
-        ...(isCur ? { current: null, playing: false, player: null, time: 0, length: 0 } : {}),
+        ...(isCur
+          ? {
+              current: null,
+              playing: false,
+              player: null,
+              time: 0,
+              length: 0,
+              loadingSince: null,
+              playWhenReady: null,
+              seekWhenReady: null,
+            }
+          : {}),
         ...(inEp ? { view: { kind: "home" as const } } : {}),
       };
     });
