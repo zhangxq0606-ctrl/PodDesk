@@ -2,10 +2,17 @@
 
 本文件记录 PodDesk 对外发布版本的用户可见变更；完整构建产物与校验码见 [GitHub Releases](https://github.com/zhangxq0606-ctrl/PodDesk/releases)。
 
-## [Unreleased]
+## [0.2.1] - 2026-11-25（内测版）
 
-- 新增项目根目录 [README.md](README.md) 与内测 Issue 反馈模板（`.github/ISSUE_TEMPLATE/`）。
-- 将立项、进度与架构文档收归 `docs/` 目录，统一使用相对路径链接。
+### 新增与改进
+- **导读联动字幕翻译（同意层）**：首次生成导读时，非中文单集可在勾选确认后一键同步触发字幕精译；导读底部状态栏增加直达翻译开关。
+- **AI 流水线与交互升级**：新增深度思考与生成中实时计时、系统提示词前缀缓存及分批并发精译（含 429 自动降并发退避与半批拆解重试）；移除谷歌免费翻译、划词翻译与冷门 `Qwen Code`（完整保留 `Qwen3-ASR`）。
+- **本地 CLI 分级隔离与稳定性兜底**：收口为 5 家本地 CLI（Claude Code / Codex / Antigravity / Kimi Code / OpenCode），为支持的 CLI 注入进程级无工具隔离并禁用 Antigravity 子进程后台更新；新增 ACP 空闲会话预热、工具调用立即拦截、Windows 进程树回收、`90s` 排队上限、前端词表提取 `28s` 超时跳过兜底及 `/api/llm/metrics` 调用耗时追踪。
+- **开源门面与文案统一**：新增根目录 [README.md](README.md) 与内测 Issue 反馈模板（`.github/ISSUE_TEMPLATE/`），将立项、进度与架构文档收归 `docs/` 目录，并统一更新核心定位语。
+
+### 修复
+- 修复 `/api/llm/chat` 断连监听通道引发的 SSE 流关闭死锁，解决导读、词表与标题翻译完成后前端仍长时间卡住的问题。
+- 修复首页冷启动时外文单集标题偶发未触发自动翻译的问题。
 
 ## [0.2.0] - 2026-11-24（内测版）
 
