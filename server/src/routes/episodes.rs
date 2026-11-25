@@ -18,9 +18,21 @@ pub struct EpisodesQuery {
 }
 
 pub async fn list_episodes(State(state): State<Arc<AppState>>, Query(q): Query<EpisodesQuery>) -> Response {
-    let conn = state.db_lock();
     let limit = q.limit.unwrap_or(300).clamp(1, 1000);
-    match db::list_episodes(&conn, q.show_id.as_deref(), limit) {
+    let (res, is_yt_show) = {
+        let conn = state.db_lock();
+        let is_yt = q
+            .show_id
+            .as_deref()
+            .is_some_and(|sid| db::get_show(&conn, sid).ok().flatten().is_some_and(|s| s.kind == "youtube"));
+        (db::list_episodes(&conn, q.show_id.as_deref(), limit), is_yt)
+    };
+    if is_yt_show {
+        if let Some(show_id) = q.show_id {
+            super::shows::spawn_youtube_pub_backfill(state.clone(), show_id);
+        }
+    }
+    match res {
         Ok(eps) => Json(eps).into_response(),
         Err(e) => api_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     }
@@ -40,8 +52,7 @@ pub async fn get_episode(State(state): State<Arc<AppState>>, AxumPath(id): AxumP
         match db::get_episode(&conn, &id) {
             Ok(Some(ep)) => {
                 let _ = db::touch_episode(&conn, &id);
-                let vid = if ep.show_id == "single"
-                    && ep.video_id.is_some()
+                let vid = if ep.video_id.is_some()
                     && db::get_blob(&conn, &id, "yt-pub-v1").ok().flatten().is_none()
                 {
                     ep.video_id.clone()
@@ -57,14 +68,14 @@ pub async fn get_episode(State(state): State<Arc<AppState>>, AxumPath(id): AxumP
     };
 
     if let Some(vid) = backfill_vid {
-        if let Ok(Ok(info)) = tokio::time::timeout(std::time::Duration::from_secs(6), youtube::video_info(&vid)).await {
+        if let Some(published) = youtube::fetch_publish_date(&vid).await {
             let conn = state.db_lock();
-            let _ = db::update_episode_published(&conn, &id, info.published);
+            let _ = db::update_episode_published(&conn, &id, Some(published));
             let _ = db::set_blob(&conn, &id, "yt-pub-v1", "1");
             if let Ok(Some(updated)) = db::get_episode(&conn, &id) {
                 ep = updated;
             } else {
-                ep.published = info.published;
+                ep.published = Some(published);
             }
         }
     }

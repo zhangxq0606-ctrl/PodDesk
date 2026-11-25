@@ -5,7 +5,6 @@ use crate::transcript;
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::HashSet;
 use std::time::Duration;
 
 const CLIENTS: &[(&str, &str, Option<u32>)] = &[
@@ -75,6 +74,42 @@ async fn fetch_watch_publish_date(video_id: &str) -> Option<i64> {
         }
     }
     None
+}
+
+/// Lightweight lookup of an episode's exact publish date (`WEB` client includes `microformat.publishDate`
+/// even without stream playback tokens; falls back to watch HTML if missing).
+pub async fn fetch_publish_date(video_id: &str) -> Option<i64> {
+    let body = json!({
+        "context": {
+            "client": {
+                "clientName": "WEB",
+                "clientVersion": "2.20250101.00.00",
+                "hl": "en",
+                "gl": "US"
+            }
+        },
+        "videoId": video_id,
+        "contentCheckOk": true,
+        "racyCheckOk": true
+    });
+    if let Ok(Ok(res)) = tokio::time::timeout(
+        Duration::from_secs(6),
+        net::client()
+            .post("https://www.youtube.com/youtubei/v1/player?prettyPrint=false")
+            .json(&body)
+            .send(),
+    )
+    .await
+    {
+        if res.status().is_success() {
+            if let Ok(player) = res.json::<Value>().await {
+                if let Some(ts) = published_of(&player) {
+                    return Some(ts);
+                }
+            }
+        }
+    }
+    fetch_watch_publish_date(video_id).await
 }
 
 fn original_language(player: &Value) -> Option<String> {
@@ -391,7 +426,9 @@ pub fn parse_relative_time(s: &str, now: i64) -> Option<i64> {
     if lower.is_empty() {
         return None;
     }
-    let re_en = regex::Regex::new(r"(\d+)\s+(second|minute|hour|day|week|month|year)s?\s+ago").ok()?;
+    // Only keep sub-month relative times (day/week precision). Coarse strings like "1 year ago"
+    // or "3 months ago" span 30-365 days and would fabricate fake identical calendar dates.
+    let re_en = regex::Regex::new(r"(\d+)\s+(second|minute|hour|day|week)s?\s+ago").ok()?;
     if let Some(c) = re_en.captures(&lower) {
         let n: i64 = c[1].parse().ok()?;
         let unit_ms: i64 = match &c[2] {
@@ -400,13 +437,11 @@ pub fn parse_relative_time(s: &str, now: i64) -> Option<i64> {
             "hour" => 3_600_000,
             "day" => 86_400_000,
             "week" => 7 * 86_400_000,
-            "month" => 30 * 86_400_000,
-            "year" => 365 * 86_400_000,
             _ => return None,
         };
         return Some(now - n * unit_ms);
     }
-    let re_compact = regex::Regex::new(r"(?:^|\b)(\d+)\s*(mo|sec|min|hr|[smhdwy])\s+ago\b").ok()?;
+    let re_compact = regex::Regex::new(r"(?:^|\b)(\d+)\s*(sec|min|hr|[smhdw])\s+ago\b").ok()?;
     if let Some(c) = re_compact.captures(&lower) {
         let n: i64 = c[1].parse().ok()?;
         let unit_ms: i64 = match &c[2] {
@@ -415,13 +450,11 @@ pub fn parse_relative_time(s: &str, now: i64) -> Option<i64> {
             "h" | "hr" => 3_600_000,
             "d" => 86_400_000,
             "w" => 7 * 86_400_000,
-            "mo" => 30 * 86_400_000,
-            "y" => 365 * 86_400_000,
             _ => return None,
         };
         return Some(now - n * unit_ms);
     }
-    let re_zh = regex::Regex::new(r"(\d+)\s*(秒|分钟|小时|天|周|个月|月|年)前").ok()?;
+    let re_zh = regex::Regex::new(r"(\d+)\s*(秒|分钟|小时|天|周)前").ok()?;
     if let Some(c) = re_zh.captures(&lower) {
         let n: i64 = c[1].parse().ok()?;
         let unit_ms: i64 = match &c[2] {
@@ -430,8 +463,6 @@ pub fn parse_relative_time(s: &str, now: i64) -> Option<i64> {
             "小时" => 3_600_000,
             "天" => 86_400_000,
             "周" => 7 * 86_400_000,
-            "个月" | "月" => 30 * 86_400_000,
-            "年" => 365 * 86_400_000,
             _ => return None,
         };
         return Some(now - n * unit_ms);
@@ -733,26 +764,8 @@ pub async fn fetch_browse_continuation(
     Ok((items, next_token))
 }
 
-pub async fn fetch_channel_initial_50(feed_url: &str) -> Result<PageBatch> {
-    let mut batch = fetch_page_initial(feed_url).await?;
-    let mut seen: HashSet<String> = batch.items.iter().map(|v| v.video_id.clone()).collect();
-    if batch.items.len() < 50 {
-        if let (Some(tok), Some(key)) = (batch.continuation.clone(), batch.api_key.clone()) {
-            let ver = batch
-                .client_version
-                .clone()
-                .unwrap_or_else(|| "2.20250101.00.00".to_string());
-            if let Ok((more, next_tok)) = fetch_browse_continuation(&key, &ver, &tok).await {
-                for item in more {
-                    if seen.insert(item.video_id.clone()) {
-                        batch.items.push(item);
-                    }
-                }
-                batch.continuation = next_tok;
-            }
-        }
-    }
-    Ok(batch)
+pub async fn fetch_channel_initial(feed_url: &str) -> Result<PageBatch> {
+    fetch_page_initial(feed_url).await
 }
 
 #[cfg(test)]
@@ -836,10 +849,12 @@ mod tests {
 
         let now = 1_700_000_000_000i64;
         assert_eq!(parse_relative_time("Streamed 2 weeks ago", now), Some(now - 14 * 86_400_000));
-        assert_eq!(parse_relative_time("3 months ago", now), Some(now - 90 * 86_400_000));
         assert_eq!(parse_relative_time("7d ago", now), Some(now - 7 * 86_400_000));
-        assert_eq!(parse_relative_time("2mo ago", now), Some(now - 60 * 86_400_000));
         assert_eq!(parse_relative_time("5 天前", now), Some(now - 5 * 86_400_000));
+        assert_eq!(parse_relative_time("3 months ago", now), None);
+        assert_eq!(parse_relative_time("2mo ago", now), None);
+        assert_eq!(parse_relative_time("1 year ago", now), None);
+        assert_eq!(parse_relative_time("2 年前", now), None);
     }
 
     #[test]

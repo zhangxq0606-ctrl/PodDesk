@@ -39,6 +39,181 @@ function looksLikeLink(text: string): boolean {
   return LINK_RE.test(text.trim());
 }
 
+const NET_ERR_RE = /网络|超时|代理|连接|proxy|timeout|failed|fetch|yt-dlp|cookie|403|429/i;
+
+function useSubscriptionSearch({
+  onSuccess,
+  notifyOnError,
+}: {
+  onSuccess?: () => void;
+  notifyOnError?: boolean;
+}) {
+  const { addSubscription, notify } = useStore(
+    useShallow((s) => ({
+      addSubscription: s.addSubscription,
+      notify: s.notify,
+    })),
+  );
+
+  const [q, setQ] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [adding, setAdding] = useState<string | null>(null);
+  const [results, setResults] = useState<SearchResult[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const timerRef = useRef<number | undefined>(undefined);
+
+  const isLink = looksLikeLink(q);
+
+  useEffect(() => {
+    window.clearTimeout(timerRef.current);
+    const trimmed = q.trim();
+    if (!trimmed || isLink) {
+      setResults(null);
+      setBusy(false);
+      return;
+    }
+    timerRef.current = window.setTimeout(async () => {
+      setBusy(true);
+      try {
+        const country = /[\u4e00-\u9fff]/.test(trimmed) ? "cn" : "us";
+        const list = await api.searchShows(trimmed, country);
+        setResults(list.slice(0, 10));
+      } catch {
+        setResults([]);
+      } finally {
+        setBusy(false);
+      }
+    }, 320);
+    return () => window.clearTimeout(timerRef.current);
+  }, [q, isLink]);
+
+  const reset = () => {
+    setQ("");
+    setResults(null);
+    setError(null);
+  };
+
+  const subscribe = async (value: string) => {
+    if (adding) return;
+    setAdding(value);
+    setError(null);
+    try {
+      await addSubscription(value);
+      reset();
+      onSuccess?.();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "订阅或打开失败";
+      setError(msg);
+      if (notifyOnError) {
+        notify(
+          msg,
+          false,
+          NET_ERR_RE.test(msg) ? { label: "检查网络", run: () => useStore.getState().openSettings("network") } : undefined,
+        );
+      }
+    } finally {
+      setAdding(null);
+    }
+  };
+
+  const handleEnter = () => {
+    const trimmed = q.trim();
+    if (!trimmed) return;
+    if (isLink) {
+      void subscribe(trimmed);
+    } else if (results?.[0]) {
+      void subscribe(results[0].feedUrl);
+    }
+  };
+
+  return {
+    q,
+    setQ: (next: string) => {
+      setQ(next);
+      if (error) setError(null);
+    },
+    busy,
+    adding,
+    results,
+    setResults,
+    error,
+    isLink,
+    netError: error ? NET_ERR_RE.test(error) : false,
+    reset,
+    subscribe,
+    handleEnter,
+  };
+}
+
+function SearchResultsList({
+  results,
+  shows,
+  adding,
+  onSelectShow,
+  onSubscribe,
+  onRowMouseDown,
+}: {
+  results: SearchResult[];
+  shows: Show[];
+  adding: string | null;
+  onSelectShow: (showId: string) => void;
+  onSubscribe: (feedUrl: string) => void;
+  onRowMouseDown?: (e: React.MouseEvent) => void;
+}) {
+  if (results.length === 0) {
+    return <p className="muted small drop-empty">没有找到匹配的播客或频道，试试英文原名或直接粘贴链接。</p>;
+  }
+  return (
+    <>
+      {results.map((r, idx) => {
+        const matchedShow = shows.find((s) => s.feedUrl === r.feedUrl);
+        return (
+          <div key={`${r.feedUrl}-${idx}`} className="drop-row" onMouseDown={onRowMouseDown}>
+            {r.cover ? (
+              <img src={r.cover} alt="" />
+            ) : (
+              <div className="cover-fallback">
+                {r.source === "youtube" ? <Tv size={15} /> : r.title.slice(0, 1)}
+              </div>
+            )}
+            <div className="drop-meta">
+              <p className="ep-name clamp1">{r.title}</p>
+              <p className="meta-line clamp1">
+                <span>{r.author || "未知作者"}</span>
+                {r.source === "youtube" ? (
+                  <span className="pill-tag">YouTube</span>
+                ) : r.genre ? (
+                  <span className="pill-tag">{r.genre}</span>
+                ) : null}
+              </p>
+            </div>
+            {matchedShow ? (
+              <button
+                type="button"
+                className="btn sm ghost sub-enter-btn"
+                onClick={() => onSelectShow(matchedShow.id)}
+              >
+                <Check size={13} />
+                <span>已订阅 · 进入</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="btn sm primary"
+                disabled={adding !== null}
+                onClick={() => onSubscribe(r.feedUrl)}
+              >
+                {adding === r.feedUrl ? <Loader2 size={13} className="spin" /> : <Plus size={13} />}
+                <span>订阅</span>
+              </button>
+            )}
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
 function TaskChip() {
   const activeAsrId = useJobs((s) => {
     for (const [id, j] of Object.entries(s.asr)) {
@@ -104,13 +279,14 @@ const SidebarShowItem = memo(function SidebarShowItem({
 });
 
 export function Sidebar({ isDrawer }: { isDrawer: boolean }) {
-  const { shows, view, go, openSettings, setImportOpen, updateInfo, setUpdateModalOpen } = useStore(
+  const { shows, view, go, openSettings, setImportOpen, setSubscribeOpen, updateInfo, setUpdateModalOpen } = useStore(
     useShallow((s) => ({
       shows: s.shows,
       view: s.view,
       go: s.go,
       openSettings: s.openSettings,
       setImportOpen: s.setImportOpen,
+      setSubscribeOpen: s.setSubscribeOpen,
       updateInfo: s.updateInfo,
       setUpdateModalOpen: s.setUpdateModalOpen,
     })),
@@ -126,13 +302,9 @@ export function Sidebar({ isDrawer }: { isDrawer: boolean }) {
     if (isDrawer) useLayout.setState({ sideDrawerOpen: false });
   };
 
-  const focusTopSearch = () => {
+  const openSubscribe = () => {
     closeDrawer();
-    const input = document.querySelector<HTMLInputElement>(".top-search input");
-    if (input) {
-      input.focus();
-      input.select();
-    }
+    setSubscribeOpen(true);
   };
 
   const body = (
@@ -188,7 +360,7 @@ export function Sidebar({ isDrawer }: { isDrawer: boolean }) {
 
       <div className="side-head">
         <span className="label">订阅频道</span>
-        <button type="button" className="icon-btn sm" title="搜索或粘贴链接订阅 (Ctrl+L)" onClick={focusTopSearch}>
+        <button type="button" className="icon-btn sm" title="添加订阅或粘贴链接" aria-label="添加订阅" onClick={openSubscribe}>
           <Plus size={14} />
         </button>
       </div>
@@ -205,7 +377,14 @@ export function Sidebar({ isDrawer }: { isDrawer: boolean }) {
             }}
           />
         ))}
-        {!shows.length && <p className="muted small side-empty">暂无订阅，可在顶部搜索添加</p>}
+        {!shows.length && (
+          <p className="muted small side-empty">
+            暂无订阅，
+            <button type="button" className="link-btn" onClick={openSubscribe}>
+              点击添加
+            </button>
+          </p>
+        )}
       </div>
 
       <TaskChip />
@@ -256,15 +435,13 @@ export function Sidebar({ isDrawer }: { isDrawer: boolean }) {
 }
 
 export function TopBar({ rightExtra }: { rightExtra?: ReactNode }) {
-  const { history, back, go, addSubscription, shows, notify, theme, lightTheme, darkTheme, savePrefs, viewKind } =
+  const { history, back, go, shows, theme, lightTheme, darkTheme, savePrefs, viewKind } =
     useStore(
       useShallow((s) => ({
         history: s.history,
         back: s.back,
         go: s.go,
-        addSubscription: s.addSubscription,
         shows: s.shows,
-        notify: s.notify,
         theme: s.prefs.theme,
         lightTheme: s.prefs.lightTheme,
         darkTheme: s.prefs.darkTheme,
@@ -280,65 +457,12 @@ export function TopBar({ rightExtra }: { rightExtra?: ReactNode }) {
   const lightLabel = getLightThemeMeta(lightTheme).name;
   const darkLabel = getDarkThemeMeta(darkTheme).name;
 
-  const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [adding, setAdding] = useState<string | null>(null);
-  const [results, setResults] = useState<SearchResult[] | null>(null);
-  const timerRef = useRef<number | undefined>(undefined);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  const isLink = looksLikeLink(q);
-
-  useEffect(() => {
-    window.clearTimeout(timerRef.current);
-    const trimmed = q.trim();
-    if (!trimmed || isLink) {
-      setResults(null);
-      setBusy(false);
-      return;
-    }
-    timerRef.current = window.setTimeout(async () => {
-      setBusy(true);
-      try {
-        const country = /[\u4e00-\u9fff]/.test(trimmed) ? "cn" : "us";
-        const list = await api.searchShows(trimmed, country);
-        setResults(list.slice(0, 10));
-      } catch {
-        setResults([]);
-      } finally {
-        setBusy(false);
-      }
-    }, 320);
-    return () => window.clearTimeout(timerRef.current);
-  }, [q, isLink]);
-
-  const subscribe = async (value: string) => {
-    if (adding) return;
-    setAdding(value);
-    try {
-      await addSubscription(value);
-      setQ("");
-      setOpen(false);
-      setResults(null);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "订阅或打开失败";
-      const netLike = /网络|超时|代理|连接|proxy|timeout|failed|fetch|yt-dlp|cookie|403|429/i.test(msg);
-      notify(msg, false, netLike ? { label: "检查网络", run: () => useStore.getState().openSettings("network") } : undefined);
-    } finally {
-      setAdding(null);
-    }
-  };
-
-  const handleEnter = () => {
-    const trimmed = q.trim();
-    if (!trimmed) return;
-    if (isLink) {
-      void subscribe(trimmed);
-    } else if (results?.[0]) {
-      void subscribe(results[0].feedUrl);
-    }
-  };
+  const { q, setQ, busy, adding, results, isLink, reset, subscribe, handleEnter } = useSubscriptionSearch({
+    onSuccess: () => setOpen(false),
+    notifyOnError: true,
+  });
 
   return (
     <header className="topbar">
@@ -392,8 +516,7 @@ export function TopBar({ rightExtra }: { rightExtra?: ReactNode }) {
                 e.preventDefault();
                 handleEnter();
               } else if (e.key === "Escape") {
-                setQ("");
-                setResults(null);
+                reset();
                 inputRef.current?.blur();
               }
             }}
@@ -406,10 +529,7 @@ export function TopBar({ rightExtra }: { rightExtra?: ReactNode }) {
                 type="button"
                 className="icon-btn sm"
                 onMouseDown={(e) => e.preventDefault()}
-                onClick={() => {
-                  setQ("");
-                  setResults(null);
-                }}
+                onClick={reset}
                 aria-label="清空"
               >
                 <X size={13} />
@@ -429,10 +549,7 @@ export function TopBar({ rightExtra }: { rightExtra?: ReactNode }) {
               type="button"
               className="icon-btn sm"
               onMouseDown={(e) => e.preventDefault()}
-              onClick={() => {
-                setQ("");
-                setResults(null);
-              }}
+              onClick={reset}
               aria-label="清空"
             >
               <X size={13} />
@@ -444,60 +561,18 @@ export function TopBar({ rightExtra }: { rightExtra?: ReactNode }) {
 
         {open && results && (
           <div className="search-drop">
-            {results.length === 0 ? (
-              <p className="muted small drop-empty">没有找到匹配的播客或频道，试试英文原名或直接粘贴链接。</p>
-            ) : (
-              results.map((r, idx) => {
-                const matchedShow = shows.find((s) => s.feedUrl === r.feedUrl);
-                return (
-                  <div key={`${r.feedUrl}-${idx}`} className="drop-row" onMouseDown={(e) => e.preventDefault()}>
-                    {r.cover ? (
-                      <img src={r.cover} alt="" />
-                    ) : (
-                      <div className="cover-fallback">
-                        {r.source === "youtube" ? <Tv size={15} /> : r.title.slice(0, 1)}
-                      </div>
-                    )}
-                    <div className="drop-meta">
-                      <p className="ep-name clamp1">{r.title}</p>
-                      <p className="meta-line clamp1">
-                        <span>{r.author || "未知作者"}</span>
-                        {r.source === "youtube" ? (
-                          <span className="pill-tag">YouTube</span>
-                        ) : r.genre ? (
-                          <span className="pill-tag">{r.genre}</span>
-                        ) : null}
-                      </p>
-                    </div>
-                    {matchedShow ? (
-                      <button
-                        type="button"
-                        className="btn sm ghost sub-enter-btn"
-                        onClick={() => {
-                          setQ("");
-                          setOpen(false);
-                          setResults(null);
-                          go({ kind: "show", id: matchedShow.id });
-                        }}
-                      >
-                        <Check size={13} />
-                        <span>已订阅 · 进入</span>
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        className="btn sm primary"
-                        disabled={adding !== null}
-                        onClick={() => void subscribe(r.feedUrl)}
-                      >
-                        {adding === r.feedUrl ? <Loader2 size={13} className="spin" /> : <Plus size={13} />}
-                        <span>订阅</span>
-                      </button>
-                    )}
-                  </div>
-                );
-              })
-            )}
+            <SearchResultsList
+              results={results}
+              shows={shows}
+              adding={adding}
+              onRowMouseDown={(e) => e.preventDefault()}
+              onSelectShow={(showId) => {
+                reset();
+                setOpen(false);
+                go({ kind: "show", id: showId });
+              }}
+              onSubscribe={(feedUrl) => void subscribe(feedUrl)}
+            />
           </div>
         )}
       </div>
@@ -649,6 +724,149 @@ export function MiniPlayer() {
         >
           <X size={14} />
         </button>
+      </div>
+    </div>
+  );
+}
+
+export function SubscribeModal() {
+  const { open, setSubscribeOpen, shows, go, openSettings } = useStore(
+    useShallow((s) => ({
+      open: s.subscribeOpen,
+      setSubscribeOpen: s.setSubscribeOpen,
+      shows: s.shows,
+      go: s.go,
+      openSettings: s.openSettings,
+    })),
+  );
+
+  const inputRef = useRef<HTMLInputElement>(null);
+  const { q, setQ, busy, adding, results, error, isLink, netError, reset, subscribe, handleEnter } =
+    useSubscriptionSearch({
+      onSuccess: () => setSubscribeOpen(false),
+    });
+
+  useEffect(() => {
+    if (!open) return;
+    const t = window.setTimeout(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }, 10);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !adding) {
+        setSubscribeOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.clearTimeout(t);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [open, adding, setSubscribeOpen]);
+
+  if (!open) return null;
+
+  const close = () => {
+    if (!adding) setSubscribeOpen(false);
+  };
+
+  return (
+    <div className="modal-back" onMouseDown={(e) => e.target === e.currentTarget && close()}>
+      <div className="modal subscribe-modal" role="dialog" aria-modal="true" aria-label="添加订阅或打开链接">
+        <div className="modal-head">
+          <h3>添加订阅或打开链接</h3>
+          <button type="button" className="icon-btn" onClick={close} aria-label="关闭">
+            <X size={17} />
+          </button>
+        </div>
+
+        <div className="modal-body sub-modal-body">
+          <form
+            className="sub-modal-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleEnter();
+            }}
+          >
+            <div className="top-search sub-modal-input focus">
+              {isLink ? <Link2 size={15} /> : <Search size={15} />}
+              <input
+                ref={inputRef}
+                value={q}
+                disabled={!!adding}
+                placeholder="粘贴 YouTube / 小宇宙 / RSS 链接，或输入节目名搜索…"
+                spellCheck={false}
+                autoCapitalize="off"
+                autoCorrect="off"
+                onChange={(e) => setQ(e.target.value)}
+              />
+              {busy || adding ? (
+                <Loader2 size={14} className="spin" />
+              ) : q ? (
+                <button type="button" className="icon-btn sm" onClick={reset} aria-label="清空">
+                  <X size={13} />
+                </button>
+              ) : null}
+            </div>
+
+            {error && (
+              <div className="sub-modal-err" role="alert">
+                <span>{error}</span>
+                {netError && (
+                  <button
+                    type="button"
+                    className="link-btn small"
+                    onClick={() => {
+                      close();
+                      openSettings("network");
+                    }}
+                  >
+                    检查网络
+                  </button>
+                )}
+              </div>
+            )}
+
+            {isLink ? (
+              <div className="sub-modal-link-box">
+                <span className="muted small">已识别为链接，按回车或点击确认立即订阅 / 打开</span>
+                <button type="submit" className="btn sm primary" disabled={!!adding}>
+                  {adding ? <Loader2 size={13} className="spin" /> : <Plus size={13} />}
+                  <span>{adding ? "正在读取…" : "订阅 / 打开"}</span>
+                </button>
+              </div>
+            ) : results ? (
+              <div className="sub-modal-results">
+                <SearchResultsList
+                  results={results}
+                  shows={shows}
+                  adding={adding}
+                  onSelectShow={(showId) => {
+                    reset();
+                    setSubscribeOpen(false);
+                    go({ kind: "show", id: showId });
+                  }}
+                  onSubscribe={(feedUrl) => void subscribe(feedUrl)}
+                />
+              </div>
+            ) : (
+              <ul className="sub-modal-hints muted small">
+                <li>
+                  <b>搜索播客</b>：直接输入中英文节目名（如 Lex Fridman、张小珺）
+                </li>
+                <li>
+                  <b>YouTube</b>：频道链接（`@名字` / 频道页）、播单或单个视频链接
+                </li>
+                <li>
+                  <b>小宇宙 / Apple Podcasts</b>：节目或单集分享链接
+                </li>
+                <li>
+                  <b>任意 RSS / Atom</b>：直接粘贴订阅地址
+                </li>
+              </ul>
+            )}
+          </form>
+        </div>
       </div>
     </div>
   );

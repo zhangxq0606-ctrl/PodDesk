@@ -171,6 +171,7 @@ pub async fn start_server(cfg: ServerConfig) -> Result<RunningServer> {
         data_dir: cfg.data_dir.clone(),
         port,
         jobs: Mutex::new(HashMap::new()),
+        pub_backfills: Mutex::new(std::collections::HashSet::new()),
         quit_tx: Mutex::new(cfg.quit_tx),
         yt_login: cfg.yt_login,
     });

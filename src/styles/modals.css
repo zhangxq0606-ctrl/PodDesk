@@ -341,3 +341,65 @@
   flex-wrap: wrap;
   margin-top: 4px;
 }
+
+/* ---- subscribe modal ---- */
+.modal.subscribe-modal {
+  width: min(560px, 100%);
+}
+
+.sub-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sub-modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sub-modal-input {
+  height: 40px;
+  border-radius: 12px;
+  background: var(--bg);
+}
+
+.sub-modal-results {
+  max-height: 340px;
+  overflow-y: auto;
+  margin: 0 -6px;
+  padding: 2px 6px;
+}
+
+.sub-modal-hints {
+  margin: 2px 0 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  line-height: 1.5;
+}
+
+.sub-modal-link-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+}
+
+.sub-modal-err {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 12.5px;
+}

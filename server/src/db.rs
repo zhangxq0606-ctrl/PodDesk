@@ -275,6 +275,35 @@ pub fn update_episode_published(conn: &Connection, id: &str, published: Option<i
     Ok(())
 }
 
+pub fn mark_episodes_pub_verified(conn: &mut Connection, ids: &[String]) -> Result<()> {
+    if ids.is_empty() {
+        return Ok(());
+    }
+    let tx = conn.transaction()?;
+    {
+        let mut st = tx.prepare("INSERT OR REPLACE INTO blobs(episode_id,kind,data) VALUES(?1,'yt-pub-v1','1')")?;
+        for id in ids {
+            st.execute([id])?;
+        }
+    }
+    tx.commit()?;
+    Ok(())
+}
+
+pub fn list_youtube_episodes_needing_pub_date(conn: &Connection, show_id: &str, limit: i64) -> Result<Vec<(String, String)>> {
+    let mut st = conn.prepare(
+        "SELECT e.id, e.video_id FROM episodes e
+         WHERE e.show_id=?1 AND e.video_id IS NOT NULL AND e.video_id != ''
+           AND NOT EXISTS (SELECT 1 FROM blobs b WHERE b.episode_id=e.id AND b.kind='yt-pub-v1')
+         ORDER BY COALESCE(e.published, 0) DESC, e.rowid ASC
+         LIMIT ?2",
+    )?;
+    let rows = st
+        .query_map(params![show_id, limit], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
 pub fn save_transcript(conn: &Connection, t: &Transcript) -> Result<()> {
     conn.execute(
         "INSERT OR REPLACE INTO transcripts(episode_id,source,language,segments,created_at) VALUES(?1,?2,?3,?4,?5)",
@@ -569,6 +598,57 @@ mod tests {
             assert!(get_episode(&conn, "e-old").unwrap().unwrap().completed);
         }
 
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path.with_extension("sqlite-wal"));
+        let _ = std::fs::remove_file(path.with_extension("sqlite-shm"));
+    }
+
+    #[test]
+    fn tracks_youtube_episodes_needing_exact_pub_date() {
+        let path = std::env::temp_dir().join(format!("podcast-desk-ytpub-test-{}.sqlite", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        {
+            let mut conn = open(&path).unwrap();
+            upsert_show(
+                &conn,
+                &Show {
+                    id: "yt1".into(),
+                    kind: "youtube".into(),
+                    title: "YT Show".into(),
+                    feed_url: "https://www.youtube.com/feeds/videos.xml?channel_id=UC123".into(),
+                    updated_at: 1,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            let eps = vec![
+                Episode {
+                    id: "ep1".into(),
+                    show_id: "yt1".into(),
+                    guid: "v1".into(),
+                    title: "Exact".into(),
+                    published: Some(1_700_000_000_000),
+                    video_id: Some("v1".into()),
+                    ..Default::default()
+                },
+                Episode {
+                    id: "ep2".into(),
+                    show_id: "yt1".into(),
+                    guid: "v2".into(),
+                    title: "Missing".into(),
+                    published: None,
+                    video_id: Some("v2".into()),
+                    ..Default::default()
+                },
+            ];
+            upsert_episodes(&mut conn, &eps).unwrap();
+            mark_episodes_pub_verified(&mut conn, &["ep1".to_string()]).unwrap();
+            let need = list_youtube_episodes_needing_pub_date(&conn, "yt1", 50).unwrap();
+            assert_eq!(need, vec![("ep2".to_string(), "v2".to_string())]);
+            update_episode_published(&conn, "ep2", Some(1_690_000_000_000)).unwrap();
+            mark_episodes_pub_verified(&mut conn, &["ep2".to_string()]).unwrap();
+            assert!(list_youtube_episodes_needing_pub_date(&conn, "yt1", 50).unwrap().is_empty());
+        }
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(path.with_extension("sqlite-wal"));
         let _ = std::fs::remove_file(path.with_extension("sqlite-shm"));

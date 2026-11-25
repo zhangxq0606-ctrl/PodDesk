@@ -197,6 +197,7 @@ interface AppStore {
   settingsSection: SettingsSection;
   settingsTargetId: string | null;
   importOpen: boolean;
+  subscribeOpen: boolean;
   updateInfo: UpdateInfo | null;
   updateModalOpen: boolean;
   checkingUpdate: boolean;
@@ -208,6 +209,7 @@ interface AppStore {
   openSettings: (section?: SettingsSection, targetId?: string | null) => void;
   closeSettings: () => void;
   setImportOpen: (open: boolean) => void;
+  setSubscribeOpen: (open: boolean) => void;
   setUpdateModalOpen: (open: boolean) => void;
   checkUpdate: (force?: boolean) => Promise<UpdateInfo | null>;
 
@@ -319,6 +321,7 @@ export const useStore = create<AppStore>((set, get) => ({
   settingsSection: "asr",
   settingsTargetId: null,
   importOpen: false,
+  subscribeOpen: false,
   updateInfo: null,
   updateModalOpen: false,
   checkingUpdate: false,
@@ -331,6 +334,7 @@ export const useStore = create<AppStore>((set, get) => ({
     set({ settingsOpen: true, settingsSection: section, settingsTargetId: targetId ?? null }),
   closeSettings: () => set({ settingsOpen: false, settingsTargetId: null }),
   setImportOpen: (open) => set({ importOpen: open }),
+  setSubscribeOpen: (open) => set({ subscribeOpen: open }),
   setUpdateModalOpen: (open) => set({ updateModalOpen: open }),
 
   checkUpdate: async (force = false) => {

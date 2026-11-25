@@ -340,6 +340,7 @@ export function HomeView() {
     refreshingAll,
     refreshAllShows,
     setImportOpen,
+    setSubscribeOpen,
     deleteEpisode,
   } = useStore(
     useShallow((s) => ({
@@ -350,6 +351,7 @@ export function HomeView() {
       refreshingAll: s.refreshingAll,
       refreshAllShows: s.refreshAllShows,
       setImportOpen: s.setImportOpen,
+      setSubscribeOpen: s.setSubscribeOpen,
       deleteEpisode: s.deleteEpisode,
     })),
   );
@@ -396,11 +398,6 @@ export function HomeView() {
     });
   };
 
-  const focusSearch = () => {
-    const el = document.querySelector<HTMLInputElement>(".top-search input");
-    el?.focus();
-  };
-
   const hero = useMemo(
     () => pickContinueHero(recentEpisodes, current ? { ep: current, time: current.progress } : null),
     [recentEpisodes, current],
@@ -421,7 +418,7 @@ export function HomeView() {
             粘贴 YouTube、小宇宙或任意播客 RSS 链接，或者导入本地音视频与文稿，即可同步双语阅读与在场感 AI 问答。
           </p>
           <div className="row-actions center" style={{ marginTop: 8 }}>
-            <button type="button" className="btn primary" onClick={focusSearch}>
+            <button type="button" className="btn primary" onClick={() => setSubscribeOpen(true)}>
               <Search size={15} />
               <span>搜索或粘贴链接</span>
             </button>
@@ -821,9 +818,24 @@ export function ShowView({ id }: { id: string }) {
         {!episodes ? (
           <SkeletonFeed count={6} />
         ) : !shown || shown.length === 0 ? (
-          <p className="muted small" style={{ paddingTop: 12 }}>
-            没有匹配的单集。
-          </p>
+          filter.trim() && hasMoreYt ? (
+            <div className="load-more-bar" style={{ justifyContent: "flex-start", gap: 10 }}>
+              <span className="muted small">当前已载 {episodes.length} 集未匹配「{filter.trim()}」</span>
+              <button
+                type="button"
+                className="btn sm"
+                onClick={() => void handleLoadMore()}
+                disabled={loadingMore}
+              >
+                {loadingMore && <Loader2 size={13} className="spin" />}
+                <span>{loadingMore ? "加载中..." : "继续加载更早单集"}</span>
+              </button>
+            </div>
+          ) : (
+            <p className="muted small" style={{ paddingTop: 12 }}>
+              没有匹配的单集。
+            </p>
+          )
         ) : (
           <GroupedEpisodes episodes={shown} showShow={false} allowDelete onDelete={handleDeleteEp} />
         )}
@@ -838,7 +850,7 @@ export function ShowView({ id }: { id: string }) {
                 disabled={loadingMore}
               >
                 {loadingMore && <Loader2 size={13} className="spin" />}
-                <span>{loadingMore ? "加载中..." : "加载更早单集"}</span>
+                <span>{loadingMore ? "加载中..." : `加载更早单集（当前已载 ${episodes.length} 集）`}</span>
               </button>
             ) : (
               <span className="muted small">已加载全部 {episodes.length} 集</span>

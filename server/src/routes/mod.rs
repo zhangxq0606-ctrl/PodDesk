@@ -20,7 +20,7 @@ use axum::{
 use rusqlite::Connection;
 use serde_json::{json, Value};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     convert::Infallible,
     path::PathBuf,
     sync::{
@@ -40,6 +40,7 @@ pub struct AppState {
     pub data_dir: PathBuf,
     pub port: u16,
     pub jobs: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    pub pub_backfills: Mutex<HashSet<String>>,
     pub quit_tx: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
     pub yt_login: Option<Arc<dyn crate::YtLoginBridge>>,
 }
@@ -295,6 +296,7 @@ mod tests {
             data_dir: std::env::temp_dir(),
             port: 14327,
             jobs: Mutex::new(HashMap::new()),
+            pub_backfills: Mutex::new(HashSet::new()),
             quit_tx: Mutex::new(None),
             yt_login: None,
         };

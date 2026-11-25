@@ -85,10 +85,78 @@ fn build_cont_state(batch: &youtube::PageBatch) -> Option<youtube::ContinuationS
     })
 }
 
-async fn fetch_youtube_initial(url: &str) -> Result<(Show, Vec<Episode>, Option<youtube::ContinuationState>), String> {
+struct BackfillGuard {
+    state: Arc<AppState>,
+    show_id: String,
+}
+
+impl Drop for BackfillGuard {
+    fn drop(&mut self) {
+        self.state
+            .pub_backfills
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&self.show_id);
+    }
+}
+
+/// Low-concurrency background calibration for YouTube channel episodes lacking exact `publishDate`.
+pub(crate) fn spawn_youtube_pub_backfill(state: Arc<AppState>, show_id: String) {
+    {
+        let mut active = state.pub_backfills.lock().unwrap_or_else(|e| e.into_inner());
+        if !active.insert(show_id.clone()) {
+            return;
+        }
+    }
+    tokio::spawn(async move {
+        let _guard = BackfillGuard {
+            state: state.clone(),
+            show_id: show_id.clone(),
+        };
+        let targets = {
+            let conn = state.db_lock();
+            if db::get_show(&conn, &show_id).ok().flatten().is_none_or(|s| s.kind != "youtube") {
+                return;
+            }
+            db::list_youtube_episodes_needing_pub_date(&conn, &show_id, 120).unwrap_or_default()
+        };
+        if targets.is_empty() {
+            return;
+        }
+        for chunk in targets.chunks(3) {
+            let still_exists = {
+                let conn = state.db_lock();
+                db::get_show(&conn, &show_id).ok().flatten().is_some()
+            };
+            if !still_exists {
+                break;
+            }
+            let mut handles = Vec::with_capacity(chunk.len());
+            for (ep_id, vid) in chunk {
+                let ep_id = ep_id.clone();
+                let vid = vid.clone();
+                handles.push(tokio::spawn(async move {
+                    (ep_id, youtube::fetch_publish_date(&vid).await)
+                }));
+            }
+            for h in handles {
+                if let Ok((ep_id, Some(ts))) = h.await {
+                    let conn = state.db_lock();
+                    let _ = db::update_episode_published(&conn, &ep_id, Some(ts));
+                    let _ = db::set_blob(&conn, &ep_id, "yt-pub-v1", "1");
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(150)).await;
+        }
+    });
+}
+
+async fn fetch_youtube_initial(
+    url: &str,
+) -> Result<(Show, Vec<Episode>, Option<youtube::ContinuationState>, Vec<String>), String> {
     let (rss_res, page_res) = tokio::join!(
         fetch_feed_with_fallback(url, "youtube"),
-        youtube::fetch_channel_initial_50(url),
+        youtube::fetch_channel_initial(url),
     );
     match (rss_res, page_res) {
         (Ok((mut show, mut rss_eps)), Ok(batch)) => {
@@ -112,7 +180,11 @@ async fn fetch_youtube_initial(url: &str) -> Result<(Show, Vec<Episode>, Option<
                 .map(|pv| (pv.video_id.as_str(), pv))
                 .collect();
             let mut seen: HashSet<String> = HashSet::new();
+            let mut exact_ids: Vec<String> = Vec::new();
             for ep in &mut rss_eps {
+                if ep.published.is_some() {
+                    exact_ids.push(ep.id.clone());
+                }
                 if let Some(vid) = ep.video_id.as_deref() {
                     seen.insert(vid.to_string());
                     if let Some(pv) = page_map.get(vid) {
@@ -127,9 +199,12 @@ async fn fetch_youtube_initial(url: &str) -> Result<(Show, Vec<Episode>, Option<
                 }
             }
             let cont = build_cont_state(&batch);
-            Ok((show, rss_eps, cont))
+            Ok((show, rss_eps, cont, exact_ids))
         }
-        (Ok((show, rss_eps)), Err(_)) => Ok((show, rss_eps, None)),
+        (Ok((show, rss_eps)), Err(_)) => {
+            let exact_ids = rss_eps.iter().filter(|e| e.published.is_some()).map(|e| e.id.clone()).collect();
+            Ok((show, rss_eps, None, exact_ids))
+        }
         (Err(rss_err), Ok(batch)) => {
             if batch.items.is_empty() {
                 return Err(rss_err);
@@ -149,7 +224,7 @@ async fn fetch_youtube_initial(url: &str) -> Result<(Show, Vec<Episode>, Option<
             };
             let eps: Vec<Episode> = batch.items.iter().map(|pv| page_video_to_episode(&show_id, pv)).collect();
             let cont = build_cont_state(&batch);
-            Ok((show, eps, cont))
+            Ok((show, eps, cont, Vec::new()))
         }
         (Err(e), Err(_)) => Err(e),
     }
@@ -174,7 +249,7 @@ pub async fn add_subscription(State(state): State<Arc<AppState>>, Json(body): Js
         Err(e) => return api_error(StatusCode::BAD_REQUEST, e.to_string()),
     };
 
-    let (show, eps, yt_cont) = match resolved {
+    let (show, eps, yt_cont, exact_ids) = match resolved {
         feeds::Source::YouTubeVideo(video_id) => match single_youtube(&state, &video_id).await {
             Ok(episode) => return Json(json!({ "episode": episode })).into_response(),
             Err(err) => return api_error(StatusCode::BAD_GATEWAY, err),
@@ -193,15 +268,15 @@ pub async fn add_subscription(State(state): State<Arc<AppState>>, Json(body): Js
             Err(e) => return api_error(StatusCode::BAD_GATEWAY, e.to_string()),
         },
         feeds::Source::Xiaoyuzhou(url) => match feeds::xiaoyuzhou_show(&url).await {
-            Ok((s, e)) => (s, e, None),
+            Ok((s, e)) => (s, e, None, Vec::new()),
             Err(e) => return api_error(StatusCode::BAD_GATEWAY, e.to_string()),
         },
         feeds::Source::Feed(url) if url.contains("youtube.com") => match fetch_youtube_initial(&url).await {
-            Ok(triple) => triple,
+            Ok(quad) => quad,
             Err(e) => return api_error(StatusCode::BAD_GATEWAY, e),
         },
         feeds::Source::Feed(url) => match fetch_feed_with_fallback(&url, "podcast").await {
-            Ok((s, e)) => (s, e, None),
+            Ok((s, e)) => (s, e, None, Vec::new()),
             Err(e) => return api_error(StatusCode::BAD_GATEWAY, e),
         },
     };
@@ -218,11 +293,18 @@ pub async fn add_subscription(State(state): State<Arc<AppState>>, Json(body): Js
         if let Err(e) = db::upsert_episodes(&mut conn, &eps) {
             return api_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string());
         }
+        if !exact_ids.is_empty() {
+            let _ = db::mark_episodes_pub_verified(&mut conn, &exact_ids);
+        }
         if let Some(cont) = yt_cont {
             if let Ok(raw) = serde_json::to_string(&cont) {
                 let _ = db::set_blob(&conn, &show.id, "yt-cont", &raw);
             }
         }
+    }
+
+    if show.kind == "youtube" {
+        spawn_youtube_pub_backfill(state.clone(), show.id.clone());
     }
 
     Json(json!({ "show": show, "episodesCount": eps.len() })).into_response()
@@ -286,6 +368,13 @@ pub async fn refresh_show(State(state): State<Arc<AppState>>, AxumPath(id): Axum
         if let Err(e) = db::upsert_episodes(&mut conn, &eps) {
             return api_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string());
         }
+        if existing.kind == "youtube" {
+            let exact_ids: Vec<String> = eps.iter().filter(|e| e.published.is_some()).map(|e| e.id.clone()).collect();
+            let _ = db::mark_episodes_pub_verified(&mut conn, &exact_ids);
+        }
+    }
+    if existing.kind == "youtube" {
+        spawn_youtube_pub_backfill(state.clone(), existing.id);
     }
     Json(json!({ "show": show, "episodesCount": eps.len() })).into_response()
 }
@@ -348,6 +437,10 @@ pub async fn refresh_all_shows(State(state): State<Arc<AppState>>) -> Response {
             .filter(|e| conn.query_row("SELECT 1 FROM episodes WHERE id=?1", [&e.id], |_| Ok(())).is_ok())
             .count();
         if db::upsert_show(&conn, &fresh).is_ok() && db::upsert_episodes(&mut conn, &eps).is_ok() {
+            if existing.kind == "youtube" {
+                let exact_ids: Vec<String> = eps.iter().filter(|e| e.published.is_some()).map(|e| e.id.clone()).collect();
+                let _ = db::mark_episodes_pub_verified(&mut conn, &exact_ids);
+            }
             refreshed_shows += 1;
             new_episodes += eps.len().saturating_sub(known);
         }
@@ -376,7 +469,7 @@ pub async fn load_more_show(State(state): State<Arc<AppState>>, AxumPath(id): Ax
     }
 
     let Some(raw) = cont_raw else {
-        let batch = match youtube::fetch_channel_initial_50(&show.feed_url).await {
+        let batch = match youtube::fetch_channel_initial(&show.feed_url).await {
             Ok(b) => b,
             Err(e) => return api_error(StatusCode::BAD_GATEWAY, e.to_string()),
         };
@@ -413,6 +506,7 @@ pub async fn load_more_show(State(state): State<Arc<AppState>>, AxumPath(id): Ax
             (added, total, updated_show)
         };
 
+        spawn_youtube_pub_backfill(state.clone(), id);
         return Json(json!({ "added": added, "total": total, "hasMore": has_more, "show": updated_show })).into_response();
     };
 
@@ -448,6 +542,7 @@ pub async fn load_more_show(State(state): State<Arc<AppState>>, AxumPath(id): Ax
         (added, total)
     };
 
+    spawn_youtube_pub_backfill(state.clone(), id);
     Json(json!({ "added": added, "total": total, "hasMore": has_more })).into_response()
 }
 

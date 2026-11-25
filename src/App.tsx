@@ -6,7 +6,7 @@ import { EpisodeView } from "./components/PlayerPanel";
 import { AudioEngine, cycleSubtitleMode, stepRate, toggleMute } from "./components/Players";
 import { SelectionTools } from "./components/SelectionTools";
 import { SettingsModal } from "./components/SettingsModal";
-import { ImportModal, MiniPlayer, Sidebar, Toast, TopBar } from "./components/Sidebar";
+import { ImportModal, MiniPlayer, Sidebar, SubscribeModal, Toast, TopBar } from "./components/Sidebar";
 import { Splitter } from "./components/Splitter";
 import { UpdateModal } from "./components/UpdateModal";
 import { api } from "./lib/api";
@@ -313,6 +313,7 @@ function AppShell() {
       <SelectionTools />
       <SettingsModal />
       <UpdateModal />
+      <SubscribeModal />
       <ImportModal />
       <ConfirmHost />
       <Toast />
