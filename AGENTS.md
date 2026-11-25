@@ -9,16 +9,17 @@
 
 | 事实 | 权威位置 |
 |---|---|
-| 产品定位、范围与业务规则 | `PROJECT.md` |
-| 技术架构、模块与公共契约 | `ARCHITECTURE.md` |
+| 产品定位、范围与业务规则 | `docs/PROJECT.md` |
+| 技术架构、模块与公共契约 | `docs/ARCHITECTURE.md` |
 | 视觉规范、主题 Token 与微动效契约 | `docs/DESIGN_SYSTEM.md` |
 | 跨平台协作、CI/CD、发版与排障 | `docs/OPERATIONS.md`（涉及分支/PR、CI/CD、升版、双端发版、官网更新或打包排障前必读） |
-| 生命周期、已验证能力与阻塞 | `PROGRESS.md` |
-| 活跃 Goal | `PROGRESS.md` 的 `active_goal` 指针；为空时不读取 `goals/` |
+| 生命周期、已验证能力与阻塞 | `docs/PROGRESS.md` |
+| 活跃 Goal | `docs/PROGRESS.md` 的 `active_goal` 指针；为空时不读取 `goals/` |
+| 对外版本更新日志 | `CHANGELOG.md` |
 
 ## 工作路径
 
-- 读取 `PROGRESS.md` 判断生命周期；`work_status` 暂停或阻塞时保留原生命周期与活跃 Goal。
+- 读取 `docs/PROGRESS.md` 判断生命周期；`work_status` 暂停或阻塞时保留原生命周期与活跃 Goal。
 - `bootstrap` / `foundation-planning` / `foundation-goal`：按项目生命周期资产执行。
 - `normal-development`：直接处理普通开发任务，不创建 Goal。
 - `evolution-goal`：只执行已确认 Goal 的边界，闭环后返回正常开发。
@@ -33,7 +34,7 @@
 
 每项验证入口只能是：真实且已验证的命令、`待建立`，或`不适用（原因）`。Foundation 退出前，所有适用命令必须实测；不适用项必须保留原因。
 
-生命周期结构检查使用共享技能中的 `python ~/.agents/skills/project-lifecycle/scripts/validate_project_scaffold.py <项目根目录>`（Windows 如 `C:\Users\qqmin06\.agents\skills\project-lifecycle\scripts\validate_project_scaffold.py D:\project\podcast-desk`）；不复制脚本到项目中。
+生命周期结构检查使用共享技能中的 `python ~/.agents/skills/project-lifecycle/scripts/validate_project_scaffold.py <项目根目录> --product docs/PROJECT.md --architecture docs/ARCHITECTURE.md --progress docs/PROGRESS.md`（Windows 如 `C:\Users\qqmin06\.agents\skills\project-lifecycle\scripts\validate_project_scaffold.py D:\project\podcast-desk --product docs/PROJECT.md --architecture docs/ARCHITECTURE.md --progress docs/PROGRESS.md`）；不复制脚本到项目中。
 
 ## 项目特有约束
 

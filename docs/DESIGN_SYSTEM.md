@@ -13,7 +13,7 @@
 
 ## 2. 三轴解耦主题架构与 26 语义 Token 契约
 
-- **三轴模型**（源码：[src/themes.css](file:///D:/project/podcast-desk/src/themes.css)、[src/lib/themes.ts](file:///D:/project/podcast-desk/src/lib/themes.ts)、[index.html](file:///D:/project/podcast-desk/index.html)）：
+- **三轴模型**（源码：[src/themes.css](../src/themes.css)、[src/lib/themes.ts](../src/lib/themes.ts)、[index.html](../index.html)）：
   - `data-theme="light" | "dark"`：当前解析后的明暗模态（支持 `system` 跟随系统、固定 `light`/`dark`）。
   - `data-palette`：`LightThemeId | DarkThemeId`（浅色与深色风格各自独立记忆，互不覆盖）。
   - 防白闪启动：`index.html` 首屏内联同步脚本必须在首帧渲染前完成 `theme`/`lightTheme`/`darkTheme` 读取与历史 ID 迁移，并立即设置 `data-theme` 与 `data-palette`。
@@ -25,7 +25,7 @@
     - **表面与交互填充**：`--sidebar`、`--bg`、`--panel`、`--surface-card`、`--elevated`、`--overlay`、`--surface-bubble`、`--track`、`--hover-fill`、`--active-fill`、`--soft`、`--soft-hover`
     - **边界与光影**：`--line`、`--line-strong`、`--rim-top`（`--inset-hi`）、`--contact-shadow`、`--thumb-ring`、`--shadow-sm`、`--shadow`、`--shadow-lg`、`--backdrop`
     - **文字与内容强调**：`--text`、`--text-2`、`--muted`、`--icon-muted`、`--ink`、`--on-ink`、`--accent`、`--accent-soft`、`--accent-text`、`--active-line`、`--mark`、`--ok`、`--ok-soft`、`--danger`、`--danger-soft`、`--float-bg`、`--float-fg`、`--float-hover`、`--float-border`
-- **OKLCH 派生引擎与 WCAG 2.1 自动化对比度门禁**（[src/lib/themeEngine.ts](file:///D:/project/podcast-desk/src/lib/themeEngine.ts)、[src/lib/__tests__/themes.test.ts](file:///D:/project/podcast-desk/src/lib/__tests__/themes.test.ts)）：
+- **OKLCH 派生引擎与 WCAG 2.1 自动化对比度门禁**（[src/lib/themeEngine.ts](../src/lib/themeEngine.ts)、[src/lib/__tests__/themes.test.ts](../src/lib/__tests__/themes.test.ts)）：
   - `derivePodDeskTheme` 支持由一对 `canvas` + `accent` Hex 种子在 OKLCH 空间内二分求解明度，保证浅色与深色语义色阶自适应达标。
   - **自动化门禁底线（Vitest 每次必跑，禁止放宽）**：
     - 浅色：`--panel !== #ffffff`；`text` 在 `panel`/`bg` ≥ `12:1`；`text-2` 在 `panel` ≥ `6.5:1`；`muted` 在 `panel`/`card` ≥ `4.6:1` 且在 `bg` ≥ `4.5:1`；`text` 在 `surface-bubble` ≥ `10:1`；`accent-text` 在 `panel`/`accent-soft` ≥ `4.5:1`。
@@ -56,7 +56,7 @@
 
 ## 4. 排版、字体栈与深色光学权重
 
-- **字体栈契约**（[src/styles/base.css](file:///D:/project/podcast-desk/src/styles/base.css)）：
+- **字体栈契约**（[src/styles/base.css](../src/styles/base.css)）：
   - `--font`：`PingFang SC` / `Noto Sans SC` / `Hiragino Sans GB` / `Segoe UI` / `Microsoft YaHei UI` / `system-ui` / `sans-serif`。
   - `--font-serif`：`Newsreader` / `Source Serif 4` / `Georgia` / `Sitka Display` / `Noto Serif SC` / `Source Han Serif SC` / `Songti SC` / `STSong` / `PingFang SC` / `Microsoft YaHei UI` / `sans-serif`。**严禁以裸 `serif` 关键字结尾**，防止未装思源宋体的 Windows 机器退化为锯齿点阵宋体（`SimSun`）。
   - `--mono`：`Cascadia Mono` / `ui-monospace` / `SFMono-Regular` / `Menlo` / `Consolas` / `monospace`。
@@ -82,11 +82,11 @@
 - **交互反馈与折叠细节**：
   - 按钮、图标键、圆形按钮、芯片、`[mm:ss]` 与发送键统一 `:active` 轻压阻尼；快进/退键点击触发 `±18°` 一次性棘轮微摆；封面播放切换使用 `320ms` 微浮起，提词切句 `220ms` 柔切；「内容精炼」使用纯 CSS `grid-template-rows: 0fr -> 1fr` 展开。
   - AI 等待状态采用步进文字流光 `.thinking-shine`，流式生成结尾呈现呼吸竖线光标（结束后自动消失），复制成功触发 `check-draw-icon` 笔触对勾。
-  - **无障碍退避**：所有新增动效自动受 [src/styles/responsive.css](file:///D:/project/podcast-desk/src/styles/responsive.css) 顶部 `@media (prefers-reduced-motion: reduce)` 全局关闭。
+  - **无障碍退避**：所有新增动效自动受 [src/styles/responsive.css](../src/styles/responsive.css) 顶部 `@media (prefers-reduced-motion: reduce)` 全局关闭。
 
 ---
 
 ## 6. 开发态对比实验室边界
 
-- 热切对比工具 [src/dev/ThemeLabBar.tsx](file:///D:/project/podcast-desk/src/dev/ThemeLabBar.tsx) 仅在 `import.meta.env.DEV && ?lab=1` 条件下通过 `React.lazy` 延迟加载，**严禁在静态模块顶层引入**。
+- 热切对比工具 [src/dev/ThemeLabBar.tsx](../src/dev/ThemeLabBar.tsx) 仅在 `import.meta.env.DEV && ?lab=1` 条件下通过 `React.lazy` 延迟加载，**严禁在静态模块顶层引入**。
 - 每次修改构建后，生产产物 `dist/` 扫描 `ThemeLabBar|data-lab|theme-lab-bar` **必须保持 `0` 命中（`LAB_HITS=0`）**。

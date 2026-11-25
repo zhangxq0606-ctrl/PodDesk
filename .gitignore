@@ -12,6 +12,7 @@ data/
 *.db-wal
 *.db-shm
 cookies.txt
+*-cookies.txt
 
 # Temp & editor files
 .tmp/

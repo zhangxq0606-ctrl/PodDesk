@@ -69,7 +69,7 @@ npm run build && cargo run --manifest-path server/Cargo.toml
 
 测试与校验：`npm run test` · `npm run typecheck` · `npm run version:check` · `cargo test --manifest-path server/Cargo.toml`。
 
-深入文档：[架构设计](ARCHITECTURE.md) · [视觉与主题契约](docs/DESIGN_SYSTEM.md) · [开发与发版手册](docs/OPERATIONS.md)
+深入文档：[更新日志](CHANGELOG.md) · [架构设计](docs/ARCHITECTURE.md) · [视觉与主题契约](docs/DESIGN_SYSTEM.md) · [开发与发版手册](docs/OPERATIONS.md)
 
 ## 致谢与开源协议
 
