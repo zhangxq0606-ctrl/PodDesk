@@ -348,10 +348,12 @@ pub fn list_settings(conn: &Connection) -> Result<HashMap<String, String>> {
     Ok(rows)
 }
 
+#[allow(dead_code)]
 pub fn tr_get(conn: &Connection, key: &str) -> Result<Option<String>> {
     Ok(conn.query_row("SELECT value FROM tr_cache WHERE key=?1", [key], |r| r.get(0)).optional()?)
 }
 
+#[allow(dead_code)]
 pub fn tr_put(conn: &Connection, key: &str, value: &str) -> Result<()> {
     conn.execute("INSERT OR REPLACE INTO tr_cache(key,value) VALUES(?1,?2)", params![key, value])?;
     Ok(())

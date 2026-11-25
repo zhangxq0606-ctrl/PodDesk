@@ -78,7 +78,7 @@ export interface Transcript {
 }
 
 export interface FoundAgent {
-  kind: "claude" | "codex" | "antigravity" | "qwen" | "kimi" | "opencode";
+  kind: "claude" | "codex" | "antigravity" | "kimi" | "opencode";
   path: string;
   version: string;
   login: "ready" | "needsLogin" | "unknown";
@@ -325,13 +325,6 @@ export const api = {
       body: form,
     });
   },
-  translateGoogle: (lines: string[], targetLang = "zh-CN", signal?: AbortSignal) =>
-    requestJson<{ items: string[] }>("/api/translate/google", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      signal,
-      body: JSON.stringify({ lines, targetLang }),
-    }),
   getEpisode: (id: string) => requestJson<Episode>(`/api/episodes/${encodeURIComponent(id)}`),
   removeEpisode: (id: string) =>
     requestJson<{ ok: boolean }>(`/api/episodes/${encodeURIComponent(id)}`, { method: "DELETE" }),
@@ -492,6 +485,7 @@ export const api = {
     quick?: boolean;
     signal?: AbortSignal;
     onDelta?: (text: string) => void;
+    onThinking?: () => void;
   }): Promise<string> {
     let full = "";
     let finalText = "";
@@ -509,7 +503,9 @@ export const api = {
         quick: opts.quick ?? false,
       },
       onEvent: (ev) => {
-        if (ev.type === "delta" && ev.text) {
+        if (ev.type === "thinking") {
+          opts.onThinking?.();
+        } else if (ev.type === "delta" && ev.text) {
           full += ev.text;
           opts.onDelta?.(ev.text);
         } else if (ev.type === "done" && ev.text) {

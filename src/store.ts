@@ -64,10 +64,12 @@ export interface Prefs {
   playbackRate: number;
   volume: number;
   muted: boolean;
-  translateEngine: "auto" | "llm" | "google";
+  translateEngine: "llm";
   translateProviderId: string; // "follow" or specific provider id
   translateModel: string;
   translateQuality: "fast" | "best";
+  autoTranslateOnTranscript: boolean;
+  guideWithTranslate: boolean;
   asrChoice: string;
   asrLang: string;
   chatInstruction: string;
@@ -90,10 +92,12 @@ const DEFAULT_PREFS: Prefs = {
   playbackRate: 1,
   volume: 1,
   muted: false,
-  translateEngine: "auto",
+  translateEngine: "llm",
   translateProviderId: "follow",
   translateModel: "",
   translateQuality: "fast",
+  autoTranslateOnTranscript: false,
+  guideWithTranslate: true,
   asrChoice: "qwen3",
   asrLang: "auto",
   chatInstruction: "",
@@ -130,6 +134,7 @@ function readPrefs(): Prefs {
     return {
       ...DEFAULT_PREFS,
       ...raw,
+      translateEngine: "llm",
       titleDisplayMode,
       autoTranslateTitles: titleDisplayMode !== "orig-only",
       lightTheme: normalizeLightTheme(raw.lightTheme),
@@ -518,7 +523,10 @@ export const useStore = create<AppStore>((set, get) => ({
       if (hit) return translateModel ? { ...hit, model: translateModel } : hit;
     }
     const id = get().chatProviderId;
-    return all.find((p) => p.id === id) ?? all[0];
+    const base = all.find((p) => p.id === id) ?? all[0];
+    if (!base) return undefined;
+    const m = get().chatModel;
+    return m ? { ...base, model: m } : base;
   },
 
   isProviderReady: (p) => {
@@ -546,7 +554,9 @@ export const useStore = create<AppStore>((set, get) => ({
     const readyAgent = agents.find((a) => a.login === "ready");
     const savedChat = settings.chatProvider;
     const chatProviderId =
-      savedChat && savedChat !== "gemini" ? savedChat : readyAgent?.kind || "deepseek";
+      savedChat && savedChat !== "gemini" && savedChat !== "qwen"
+        ? savedChat
+        : readyAgent?.kind || "deepseek";
     const chatModel = savedChat === chatProviderId ? (settings.chatModel ?? "") : "";
 
     const cacheEntries: Record<string, Episode> = {};

@@ -187,6 +187,27 @@
   text-align: center;
 }
 
+.gt-consent-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  text-align: left;
+  padding: 8px 11px;
+  border-radius: var(--r-md);
+  background: var(--hover-fill);
+  border: 1px solid var(--line);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text2);
+  cursor: pointer;
+}
+
+.gt-consent-check input {
+  margin-top: 2px;
+  flex: none;
+  accent-color: var(--accent);
+}
+
 .gt-fade-in {
   animation: gt-fade-in 0.18s var(--ease) both;
 }
@@ -619,13 +640,29 @@
   border-radius: 999px;
   background: var(--hover-fill);
   border: 1px solid var(--line);
+  font: inherit;
   font-size: 11.5px;
   font-variant-numeric: tabular-nums;
   color: var(--muted);
+  cursor: pointer;
+  transition: background-color 140ms var(--ease-out), border-color 140ms var(--ease-out), color 140ms var(--ease-out);
+}
+
+.presence-bar:hover {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
+  color: var(--text);
 }
 
 .presence-bar svg {
   color: var(--accent);
+}
+
+.presence-bar.is-paused {
+  opacity: 0.72;
+}
+
+.presence-bar.is-paused svg {
+  color: var(--muted);
 }
 
 .presence-bar.is-live::before {

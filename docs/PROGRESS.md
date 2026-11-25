@@ -3,7 +3,7 @@ lifecycle: bootstrap
 foundation: pending
 active_goal: null
 work_status: active
-last_verified: 2026-11-24
+last_verified: 2026-11-25
 ---
 
 # 当前里程碑
@@ -40,6 +40,7 @@ last_verified: 2026-11-24
 
 # 最近完成
 
+- **2026-11-25（AI 链路调优、谷歌翻译剥离、SSE 闭环与本地 CLI 隔离）**：移除谷歌翻译与划词翻译入口，上线 Guide 页同意后一键联动字幕精译、`thinking` 思考计时与系统提示词前缀缓存；修复 `/api/llm/chat` 后台断连通道克隆导致 SSE 流无法结束的死锁（改用 `CancelOnDropStream`）；收口移除 `Qwen Code`（保留 `Qwen3-ASR`），为 `OpenCode` / `Codex` / `Antigravity` 注入进程级只读无工具隔离，补充 ACP `spare` 预建会话、`tool_call` 立即拦截、Windows 进程树回收、`90s` 排队上限与最近调用追踪日志（`/api/llm/metrics`），并增加前端词表提取 `28s` 超时跳过兜底与冷启动标题翻译修复。
 - **2026-11-25（开源门面与文档结构收口）**：新增根目录 [README.md](../README.md)、[CHANGELOG.md](../CHANGELOG.md) 与 `.github/ISSUE_TEMPLATE/` 内测反馈模板；将 `PROJECT.md`、`PROGRESS.md`、`ARCHITECTURE.md` 收归 `docs/`，修复 [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md) 本地死链并更新 [AGENTS.md](../AGENTS.md) 导航与 [.gitignore](../.gitignore)。
 - **2026-11-24（`v0.2.0` 发布与官网升级）**：落地应用内 YouTube WebView 登录兜底（[ytlogin.rs](../desktop/src/ytlogin.rs)、[ytdlp.rs](../server/src/asr/ytdlp.rs)）、完整播单翻页（[youtube.rs](../server/src/youtube.rs)）、导读骨架防闪烁（[GuidePanel.tsx](../src/components/chat/GuidePanel.tsx)）、3 档单集标题与 [UpdateModal.tsx](../src/components/UpdateModal.tsx)；发布双端 `v0.2.0` Pre-release 并完成官网第 5 屏与品牌 Logo 统一。
 - **2026-11-24（跨平台治理与双端 CI/CD）**：落地 [ci.yml](../.github/workflows/ci.yml)、[release.yml](../.github/workflows/release.yml)、[OPERATIONS.md](OPERATIONS.md)、[sync-version.mjs](../scripts/sync-version.mjs) 与 [run-tauri.mjs](../scripts/run-tauri.mjs)，并完成 macOS Apple Silicon 真机适配与 Metal 转写验证。

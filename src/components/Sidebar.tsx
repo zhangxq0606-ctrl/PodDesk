@@ -241,11 +241,12 @@ function TaskChip() {
     );
   }
   if (activeTrId && trJob) {
-    const pct = trJob.total > 0 ? ` · ${trJob.done}/${trJob.total}` : "";
+    const doneCount = trJob.retranslating ? (trJob.pendingDone ?? 0) : trJob.done;
+    const pct = trJob.total > 0 ? ` · ${doneCount}/${trJob.total}` : "";
     return (
       <button type="button" className="task-chip" onClick={() => go({ kind: "episode", id: activeTrId })}>
         <Loader2 size={13} className="spin" />
-        <span className="label">翻译中{pct}</span>
+        <span className="label">{trJob.retranslating ? "重译中" : "翻译中"}{pct}</span>
       </button>
     );
   }

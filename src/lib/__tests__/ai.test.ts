@@ -1,6 +1,25 @@
 import { describe, expect, it } from "vitest";
-import { batches, clock, hasTimelineHeading, isMostlyChinese, parseGuideMarkdown, parseTimestamp, pieces, salvage } from "../ai";
-import type { Segment } from "../api";
+import {
+  batches,
+  buildPresenceNote,
+  buildQaSystem,
+  cleanShowNotes,
+  clock,
+  countTranslated,
+  hasTimelineHeading,
+  isMostlyChinese,
+  parseGuideMarkdown,
+  parseTimestamp,
+  pieces,
+  salvage,
+  sampleTranscriptForContext,
+  STARTER_PROMPT_IDS,
+  summaryPrompt,
+  transcriptBudget,
+  transcriptForModel,
+  translationConcurrency,
+} from "../ai";
+import type { ProviderConfig, Segment } from "../api";
 
 describe("ai utilities", () => {
   it("formats clock strings and parses timestamps symmetrically", () => {
@@ -87,6 +106,80 @@ describe("ai utilities", () => {
     const partial = salvage('{"t":[{"id":1,"text":"第一句"},{"id":2,"text":"第', [1, 2, 3]);
     expect(partial.get(1)).toBe("第一句");
     expect(partial.has(2)).toBe(false);
+
+    const reordered = salvage('{"t":[{"text":"倒序文本","id":5,"extra":true}]}', [5]);
+    expect(reordered.get(5)).toBe("倒序文本");
+  });
+
+  it("keeps QA system prompt static and formats presence notes selectively", () => {
+    const sysA = buildQaSystem("Ep 1", "Show", "[00:10] Hello");
+    const sysB = buildQaSystem("Ep 1", "Show", "[00:10] Hello");
+    expect(sysA).toBe(sysB);
+
+    const segs: Segment[] = [
+      { start: 10, end: 15, text: "First line" },
+      { start: 55, end: 62, text: "Target discussion" },
+      { start: 110, end: 115, text: "Later line" },
+    ];
+    const note = buildPresenceNote(segs, 60, "刚才这里说了啥？", { translation: ["第一句", "目标讨论", "后续"] });
+    expect(note).toContain("[01:00]");
+    expect(note).toContain("Target discussion ｜ 目标讨论");
+    expect(note).not.toContain("Later line");
+
+    expect(buildPresenceNote(segs, 60, "关于 [00:55] 这段话什么意思")).toBe("");
+    expect(buildPresenceNote(segs, 60, "请总结全期", { skipPresence: true })).toBe("");
+
+    const withCtx = buildQaSystem("Ep 1", "Show", "[00:10] Hello", undefined, {
+      notes: "<p>Guest <b>Alice</b> discusses scaling laws https://example.com</p>",
+      ctx: {
+        summary: "深度对话节目",
+        speakers: [{ name: "Alice", zh: "爱丽丝", role: "研究者" }],
+        terms: [{ src: "Scaling Law", zh: "缩放定律" }],
+      },
+    });
+    expect(withCtx).toContain("<episode_context>");
+    expect(withCtx).toContain("Alice（爱丽丝） · 研究者");
+    expect(withCtx).toContain("Scaling Law → 缩放定律");
+    expect(withCtx).toContain("Guest Alice discusses scaling laws");
+    expect(withCtx).not.toContain("https://example.com");
+  });
+
+  it("adapts summary chapters by duration and samples long transcripts across full timeline", () => {
+    expect(summaryPrompt(600)).toContain("3–5 个话题段落");
+    expect(summaryPrompt(2400)).toContain("6–10 个话题段落");
+    expect(summaryPrompt(7200)).toContain("10–16 个话题段落");
+    expect(summaryPrompt(7200)).toContain("严禁写成 [05:10-08:20]");
+
+    expect(cleanShowNotes("<div>Hi &nbsp; <a href='x'>link</a> https://a.co </div>")).toContain("Hi");
+
+    const marathon: Segment[] = Array.from({ length: 120 }, (_, i) => ({
+      start: i * 90,
+      end: i * 90 + 30,
+      text: `Marker_${String(i).padStart(3, "0")} detailed segment content about architecture`,
+    }));
+    const sampled = transcriptForModel(marathon, null, 2400);
+    expect(sampled).toContain("Marker_000");
+    expect(sampled).toContain("Marker_060");
+    expect(sampled).toContain("Marker_108");
+    expect(sampled).toContain("略过中间段落");
+
+    const ctxSample = sampleTranscriptForContext(marathon, 1200);
+    expect(ctxSample).toContain("Marker_000");
+    expect(ctxSample).toContain("Marker_054");
+    expect(ctxSample).toContain("Marker_060");
+  });
+
+  it("counts empty translated lines and picks tiered concurrency and budget", () => {
+    expect(countTranslated(["你好", "", null, undefined, "世界"])).toBe(3);
+    const local: ProviderConfig = { id: "ollama", name: "Ollama", protocol: "openai", group: "local", baseUrl: "", model: "qwen3", needsKey: false };
+    const cli: ProviderConfig = { id: "codex", name: "Codex", protocol: "cli", group: "cli", baseUrl: "", model: "", needsKey: false };
+    const cloud: ProviderConfig = { id: "deepseek", name: "DeepSeek", protocol: "openai", group: "provider", baseUrl: "", model: "deepseek-chat", needsKey: true };
+    expect(translationConcurrency(local)).toBe(1);
+    expect(translationConcurrency(cli)).toBe(2);
+    expect(translationConcurrency(cloud)).toBe(3);
+    expect(transcriptBudget(local)).toBe(48_000);
+    expect(transcriptBudget(cloud)).toBe(400_000);
+    expect(STARTER_PROMPT_IDS).toEqual(["insights", "action", "debate"]);
   });
 
   it("detects predominantly Chinese transcripts accurately", () => {

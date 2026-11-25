@@ -102,24 +102,30 @@ pub async fn chat(
     quick: bool,
     cancel: &AtomicBool,
     mut on_delta: impl FnMut(&str),
+    mut on_thinking: impl FnMut(),
 ) -> Result<String> {
     let key = get_key(&p.id);
     let anthropic = p.protocol == "anthropic";
     if anthropic && key.is_none() {
         return Err(anyhow!("请先在设置里填写 API Key"));
     }
-    let (mut completion_tokens, mut json) = (false, json_mode);
+    let (mut completion_tokens, mut json, mut anthropic_cache) = (false, json_mode, !system.is_empty());
     let mut think_off = if quick { think_off_param(p) } else { None };
     let mut tries = 0;
     let res = loop {
         tries += 1;
         let req = if anthropic {
             let msgs: Vec<Value> = messages.iter().map(|m| json!({"role": m.role, "content": m.content})).collect();
+            let sys_val = if anthropic_cache {
+                json!([{ "type": "text", "text": system, "cache_control": { "type": "ephemeral" } }])
+            } else {
+                json!(system)
+            };
             net::client()
                 .post(anthropic_url(&p.base_url))
                 .header("x-api-key", key.clone().unwrap_or_default())
                 .header("anthropic-version", "2023-06-01")
-                .json(&json!({ "model": p.model, "max_tokens": max_tokens, "system": system, "messages": msgs, "stream": true }))
+                .json(&json!({ "model": p.model, "max_tokens": max_tokens, "system": sys_val, "messages": msgs, "stream": true }))
         } else {
             let mut msgs = vec![json!({"role": "system", "content": system})];
             msgs.extend(messages.iter().map(|m| json!({"role": m.role, "content": m.content})));
@@ -147,6 +153,10 @@ pub async fn chat(
         }
         let body = res.text().await.unwrap_or_default();
         let l = body.to_lowercase();
+        if anthropic && anthropic_cache && matches!(status.as_u16(), 400 | 422) && tries < 3 && (l.contains("cache_control") || l.contains("system")) {
+            anthropic_cache = false;
+            continue;
+        }
         if !anthropic && matches!(status.as_u16(), 400 | 422) && tries < 4 {
             if !completion_tokens && l.contains("max_completion_tokens") {
                 completion_tokens = true;
@@ -192,8 +202,11 @@ pub async fn chat(
             }
             let Ok(v) = serde_json::from_str::<Value>(data) else { continue };
             let piece = if anthropic {
-                if v["delta"]["thinking"].is_string() {
+                if v["delta"]["thinking"].is_string()
+                    || (v["type"].as_str() == Some("content_block_start") && v["content_block"]["type"].as_str() == Some("thinking"))
+                {
                     thought = true;
+                    on_thinking();
                 }
                 if v["delta"]["stop_reason"].as_str() == Some("max_tokens") {
                     cut = true;
@@ -212,15 +225,22 @@ pub async fn chat(
                     || d["reasoning"].as_str().is_some_and(|x| !x.is_empty())
                 {
                     thought = true;
+                    on_thinking();
                 }
                 if v["choices"][0]["finish_reason"].as_str() == Some("length") {
                     cut = true;
                 }
                 text_of(&d["content"])
             };
-            if let Some(piece) = piece.map(|x| think.feed(&x)).filter(|p| !p.is_empty()) {
-                full.push_str(&piece);
-                on_delta(&piece);
+            if let Some(raw_piece) = piece {
+                let filtered = think.feed(&raw_piece);
+                if think.inside {
+                    on_thinking();
+                }
+                if !filtered.is_empty() {
+                    full.push_str(&filtered);
+                    on_delta(&filtered);
+                }
             }
         }
     }
@@ -260,6 +280,10 @@ fn think_off_param(p: &Provider) -> Option<(&'static str, Value)> {
     } else if base.contains("volces.com") || model.starts_with("doubao-seed") {
         Some(("thinking", json!({"type": "disabled"})))
     } else if base.contains("api.openai.com") && (model.starts_with('o') || model.starts_with("gpt-5")) {
+        Some(("reasoning_effort", json!("low")))
+    } else if base.contains("generativelanguage.googleapis.com")
+        || ((model.starts_with("gemini-2.5") || model.starts_with("gemini-3")) && !base.contains("openrouter"))
+    {
         Some(("reasoning_effort", json!("low")))
     } else {
         None
@@ -409,6 +433,10 @@ mod think_off_tests {
         assert_eq!(think_off_param(&p("https://open.bigmodel.cn/api/paas/v4", "glm-4.5")).unwrap().0, "thinking");
         assert_eq!(think_off_param(&p("https://ark.cn-beijing.volces.com/api/v3", "doubao-seed-1.6")).unwrap().0, "thinking");
         assert_eq!(think_off_param(&p("https://api.openai.com/v1", "gpt-5-mini")).unwrap().1, json!("low"));
+        assert_eq!(
+            think_off_param(&p("https://generativelanguage.googleapis.com/v1beta/openai", "gemini-2.5-flash")).unwrap(),
+            ("reasoning_effort", json!("low"))
+        );
         assert!(think_off_param(&p("https://api.openai.com/v1", "gpt-4.1")).is_none());
         assert!(think_off_param(&p("https://openrouter.ai/api/v1", "deepseek/deepseek-r1")).is_none());
     }

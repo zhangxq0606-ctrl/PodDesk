@@ -348,7 +348,7 @@ function AgentDetailPanel({
       </div>
 
       <p className="muted small">
-        字幕与问题仅交给本机 {meta.name} 处理；它在空目录中运行，不能读写你的文件或执行命令。
+        字幕与问题仅交给本机 {meta.name} 在隔离空目录中纯文本处理，禁止调用外部工具与读写文件；受本地 CLI 客户端机制影响，大批量并发翻译优先推荐直连 API 模型。
       </p>
     </div>
   );
@@ -404,8 +404,7 @@ export function AiSettingsSection() {
   const [testingConn, setTestingConn] = useState(false);
   const [connMsg, setConnMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
-  const splitInitial =
-    prefs.translateEngine === "google" || (!!prefs.translateProviderId && prefs.translateProviderId !== "follow");
+  const splitInitial = Boolean(prefs.translateProviderId && prefs.translateProviderId !== "follow");
   const [divisionOpen, setDivisionOpen] = useState(splitInitial);
 
   useEffect(() => {
@@ -523,13 +522,10 @@ export function AiSettingsSection() {
     }
   };
 
-  const googleMode = prefs.translateEngine === "google";
-  const splitTranslate = googleMode || (!!prefs.translateProviderId && prefs.translateProviderId !== "follow");
-  const trSummaryName = googleMode
-    ? "谷歌免费直连"
-    : trTarget
-      ? `${trTarget.name}${prefs.translateModel ? ` · ${prefs.translateModel.split("/").pop()}` : ""}`
-      : "未设置";
+  const splitTranslate = Boolean(prefs.translateProviderId && prefs.translateProviderId !== "follow");
+  const trSummaryName = trTarget
+    ? `${trTarget.name}${prefs.translateModel ? ` · ${prefs.translateModel.split("/").pop()}` : ""}`
+    : "未设置";
 
   return (
     <div className="ai-settings">
@@ -792,18 +788,10 @@ export function AiSettingsSection() {
               <label>
                 <span>字幕批量翻译</span>
                 <select
-                  value={googleMode ? "google" : prefs.translateProviderId || "follow"}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    if (val === "google") {
-                      savePrefs({ translateEngine: "google", translateProviderId: "follow", translateModel: "" });
-                    } else {
-                      savePrefs({ translateEngine: "auto", translateProviderId: val, translateModel: "" });
-                    }
-                  }}
+                  value={prefs.translateProviderId || "follow"}
+                  onChange={(e) => savePrefs({ translateProviderId: e.target.value, translateModel: "" })}
                 >
-                  <option value="follow">跟随默认模型（无就绪模型时自动回退谷歌）</option>
-                  <option value="google">始终用谷歌免费直连（需可访问 Google，走本机代理）</option>
+                  <option value="follow">跟随问答默认模型（省去重复配置）</option>
                   {prefs.translateProviderId &&
                     prefs.translateProviderId !== "follow" &&
                     !readyProviders.some((p) => p.id === prefs.translateProviderId) &&
@@ -819,9 +807,9 @@ export function AiSettingsSection() {
               </label>
             </div>
 
-            {!googleMode && prefs.translateProviderId && prefs.translateProviderId !== "follow" && trTarget && (
+            {prefs.translateProviderId && prefs.translateProviderId !== "follow" && trTarget && (
               <label>
-                <span>翻译专用子模型（可将翻译拆给更轻快的免费模型）</span>
+                <span>翻译专用子模型（可将翻译拆给更轻快的模型）</span>
                 <select
                   value={prefs.translateModel || ""}
                   onChange={(e) => savePrefs({ translateModel: e.target.value })}
@@ -836,34 +824,41 @@ export function AiSettingsSection() {
               </label>
             )}
 
-            {!googleMode && (
-              <div className="reading-row">
-                <div>
-                  <span>翻译方式</span>
-                  <p className="muted small">
-                    {prefs.translateQuality === "best"
-                      ? "翻完再通读润色一遍，更自然，耗时约加倍"
-                      : "一遍结合上下文与术语表翻完，速度最快"}
-                  </p>
-                </div>
-                <div className="seg-control">
-                  <button
-                    type="button"
-                    className={prefs.translateQuality === "fast" ? "on" : ""}
-                    onClick={() => savePrefs({ translateQuality: "fast" })}
-                  >
-                    快速
-                  </button>
-                  <button
-                    type="button"
-                    className={prefs.translateQuality === "best" ? "on" : ""}
-                    onClick={() => savePrefs({ translateQuality: "best" })}
-                  >
-                    精翻
-                  </button>
-                </div>
+            <div className="reading-row">
+              <div>
+                <span>翻译方式</span>
+                <p className="muted small">
+                  {prefs.translateQuality === "best"
+                    ? "翻完再通读润色一遍，更自然，耗时约加倍"
+                    : "一遍结合上下文与术语表翻完，速度最快"}
+                </p>
               </div>
-            )}
+              <div className="seg-control">
+                <button
+                  type="button"
+                  className={prefs.translateQuality === "fast" ? "on" : ""}
+                  onClick={() => savePrefs({ translateQuality: "fast" })}
+                >
+                  快速
+                </button>
+                <button
+                  type="button"
+                  className={prefs.translateQuality === "best" ? "on" : ""}
+                  onClick={() => savePrefs({ translateQuality: "best" })}
+                >
+                  精翻
+                </button>
+              </div>
+            </div>
+
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={prefs.autoTranslateOnTranscript}
+                onChange={(e) => savePrefs({ autoTranslateOnTranscript: e.target.checked })}
+              />
+              <span>拿到外文字幕后自动开始精译（默认关闭，开启将自动消耗所选模型额度）</span>
+            </label>
           </div>
         )}
       </div>

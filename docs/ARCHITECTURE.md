@@ -20,7 +20,7 @@
 
 > 当前已完成首版 MVP（阶段 1–4）、Tauri v2 Windows 独立桌面客户端收口、**第一关架构及稳定性治理**与**第二关 UI 质感重塑与 8 套主题/微动效体系**：已完成前后端核心巨石文件按域模块化拆分（`server/src/routes/` 6 子模块、`src/styles/` 11 模块、`src/components/{chat,player,settings}/`）、SQLite/渲染虚拟化性能调优、GitHub 镜像回退与退出保护、前端 Vitest 单测护栏，以及三轴解耦的 4 浅 + 4 纯中性深主题系统、OKLCH 对比度引擎与声学编辑台微工艺/微动效（契约见 `docs/DESIGN_SYSTEM.md`）；**未纳入首版的共享飞轮、深度知识整理多模板与 Obsidian 直写仍未引入**。
 
-- **本地后端（已实现并编译/单测通过）**：Rust（Edition 2024，`server/`），`axum 0.8`（REST + Multipart 512 MB 上传 + SSE；路由按业务域拆分为 `server/src/routes/{mod,settings,shows,episodes,ai,asr}.rs`）+ `tower-http` 静态资源与 Range 媒体流托管，内嵌 `rusqlite`（SQLite WAL 7 表 + 内存临时表/16 MB 页缓存/64 MB mmap PRAGMA 与 `(show_id, progress)` 索引）、`reqwest`（rustls + 系统/手动代理 + GitHub 官方源自动/自定义镜像回退）、`update`（GitHub Releases 版本检查 + 30 分钟缓存与国内镜像回退）、`symphonia 0.5`（纯 Rust 音频解码）、`llm` 快速模式（`quick` 关思考与不兼容参数自动降级重试）、外部子进程调度（GitHub 官方/镜像源 `yt-dlp` 含流地址失效刷新、`YtLoginBridge` 桌面会话临时 Cookie 注入与可选 `youtube-cookies.txt`、`CrispASR` / `Qwen3-ASR 0.6B` / `1.7B` / `SenseVoice`、7 种本机 CLI Agent）及活跃任务追踪与优雅退出控制。零 `tauri` 与 `whisper-rs` 依赖。
+- **本地后端（已实现并编译/单测通过）**：Rust（Edition 2024，`server/`），`axum 0.8`（REST + Multipart 512 MB 上传 + SSE；路由按业务域拆分为 `server/src/routes/{mod,settings,shows,episodes,ai,asr}.rs`）+ `tower-http` 静态资源与 Range 媒体流托管，内嵌 `rusqlite`（SQLite WAL 7 表 + 内存临时表/16 MB 页缓存/64 MB mmap PRAGMA 与 `(show_id, progress)` 索引）、`reqwest`（rustls + 系统/手动代理 + GitHub 官方源自动/自定义镜像回退）、`update`（GitHub Releases 版本检查 + 30 分钟缓存与国内镜像回退）、`symphonia 0.5`（纯 Rust 音频解码）、`llm` 快速模式（`quick` 关思考与不兼容参数自动降级重试）、外部子进程调度（GitHub 官方/镜像源 `yt-dlp` 含流地址失效刷新、`YtLoginBridge` 桌面会话临时 Cookie 注入与可选 `youtube-cookies.txt`、`CrispASR` / `Qwen3-ASR 0.6B` / `1.7B` / `SenseVoice`、5 种本机 CLI Agent）及活跃任务追踪与优雅退出控制。零 `tauri` 与 `whisper-rs` 依赖。
 - **桌面薄壳（已实现并打包通过）**：`desktop/`（`Tauri v2`），无黑框单实例运行、最小窗口放宽至 `720×560`、支持多显示器可视范围校验的 `window-state.json` 位置/尺寸持久化、托盘运行期保护（有活跃后台转写/下载任务时退出触发应用内确认或二次点击强制退出）、VC++ 运行库随包分发与中文 NSIS 安装包。
 - **前端工作台（已实现、模块化并加入单测与对比度护栏）**：React 19 + TypeScript + Vite 6 + Zustand（`src/`）；样式拆分为 `src/styles/` 下 11 个按域模块（`index.css` 统一引入）与 [src/themes.css](../src/themes.css)，核心交互组件拆分为 `src/components/{chat,player,settings}/`；消除高频 `s.time` 播放进度导致的整树重渲染，`TranscriptPanel` 对 ≥160 段长文稿启用零依赖动态行高虚拟滚动（`src/lib/virtualList.ts`），列表页接入滚动位置恢复（`src/lib/cache.ts`），网络错误 Toast 支持一键直达网络设置；内置 4 浅 + 4 纯中性深三轴解耦主题、`src/lib/themeEngine.ts` OKLCH 对比度引擎与纯 CSS 零依赖微动效（契约见 `docs/DESIGN_SYSTEM.md`，`src/dev/` 热切实验室仅 `import.meta.env.DEV && ?lab=1` 懒加载，不进入生产打包）；核心纯逻辑与主题对比度门禁由 Vitest 单元测试覆盖（`src/lib/__tests__/`）。
 - **数据存储（已实现并验证跨重启持久化）**：`<data_dir>/podcast-desk.sqlite`（WAL 模式 7 张核心表：`shows`、`episodes`、`transcripts`、`blobs`、`settings`、`tr_cache`、`listens`），`<data_dir>/window-state.json`（桌面窗口状态），`<data_dir>/media/`（本地音视频导入文件），`<data_dir>/youtube-cookies.txt`（可选按需 Cookie），`<data_dir>/streams.json`（YouTube 直链过期缓存），`<data_dir>/bin/` 与 `<data_dir>/models/`（按需下载外部工具与 `Qwen3-ASR`）。
@@ -37,7 +37,7 @@
   ├── 静态资源托管（同源 localhost，避免 YouTube 拒播与 CORS）
   ├── 抓源与网络层（net 代理 / feeds / youtube / 可选 cookies.txt）
   ├── 转写与媒体层（symphonia 解码 / 外调 Qwen3-ASR / 云端 ASR）
-  ├── AI 透传与 Agent 层（llm 流式代理 / agents 7 种本机 CLI / translate 直连谷歌）
+  ├── AI 透传与 Agent 层（llm 流式代理 / agents 5 种本机 CLI）
   └── 存储层（本地 SQLite 7 表 + 本地媒体/模型缓存）
         │
         ├──► 外部音视频/字幕源（走用户本机代理）

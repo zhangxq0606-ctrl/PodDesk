@@ -1,12 +1,39 @@
 import { useEffect } from "react";
 import { create } from "zustand";
 import { useStore, type TitleDisplayMode } from "../store";
-import { api } from "./api";
+import { translateTextsWithAi } from "./ai";
 
 const CJK_RE = /[\u4e00-\u9fff]/g;
 const NON_ZH_SCRIPT_RE = /[A-Za-z\u00c0-\u024f\u3040-\u30ff\uac00-\ud7af]/;
 const TRANSLITERATION_RE = /^[\u4e00-\u9fff]{1,8}(?:\s*[·•・]\s*[\u4e00-\u9fff]{1,8})+$/;
 const FAILURE_COOLDOWN_MS = 60_000;
+const TITLE_CACHE_KEY = "podcast-desk-title-zh";
+const MAX_CACHED_TITLES = 500;
+
+function loadTitleCache(): Record<string, string> {
+  try {
+    const raw = JSON.parse(localStorage.getItem(TITLE_CACHE_KEY) ?? "{}") as unknown;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(raw)) {
+      if (typeof v === "string" && v.trim()) out[k] = v;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+function saveTitleCache(map: Record<string, string>): void {
+  try {
+    const entries = Object.entries(map);
+    const trimmed =
+      entries.length > MAX_CACHED_TITLES ? Object.fromEntries(entries.slice(-MAX_CACHED_TITLES)) : map;
+    localStorage.setItem(TITLE_CACHE_KEY, JSON.stringify(trimmed));
+  } catch {
+    /* ignore storage error */
+  }
+}
 
 /** Returns true when text already has >= 25% Chinese characters. */
 export function isMostlyChineseText(text: string): boolean {
@@ -30,26 +57,30 @@ export function shouldTranslateTitle(text: string | undefined | null): boolean {
   return NON_ZH_SCRIPT_RE.test(clean);
 }
 
-const useZhStore = create<{ map: Record<string, string> }>(() => ({ map: {} }));
+const useZhStore = create<{ map: Record<string, string> }>(() => ({ map: loadTitleCache() }));
 const queued = new Set<string>();
 const inFlight = new Set<string>();
 const failedAt = new Map<string, number>();
 let flushTimer: number | undefined;
+let flushing = false;
 
 async function flush(): Promise<void> {
   flushTimer = undefined;
-  const batch = [...queued].slice(0, 40);
-  if (!batch.length) return;
+  if (flushing || !queued.size) return;
+  const store = useStore.getState();
+  const provider = store.getTranslateProvider();
+  if (!provider || !store.isProviderReady(provider)) {
+    queued.clear();
+    return;
+  }
+  const batch = [...queued].slice(0, 24);
+  flushing = true;
   for (const t of batch) {
     queued.delete(t);
     inFlight.add(t);
   }
-  if (queued.size > 0) {
-    flushTimer = window.setTimeout(() => void flush(), 60);
-  }
   try {
-    const res = await api.translateGoogle(batch, "zh-CN");
-    const items = res.items ?? [];
+    const items = await translateTextsWithAi(provider, batch);
     useZhStore.setState((s) => {
       const nextMap = { ...s.map };
       batch.forEach((src, i) => {
@@ -61,6 +92,7 @@ async function flush(): Promise<void> {
           failedAt.set(src, Date.now());
         }
       });
+      saveTitleCache(nextMap);
       return { map: nextMap };
     });
   } catch {
@@ -69,8 +101,12 @@ async function flush(): Promise<void> {
       failedAt.set(src, now);
     }
   } finally {
+    flushing = false;
     for (const src of batch) {
       inFlight.delete(src);
+    }
+    if (queued.size > 0 && !flushTimer) {
+      flushTimer = window.setTimeout(() => void flush(), 80);
     }
   }
 }
@@ -78,27 +114,31 @@ async function flush(): Promise<void> {
 function requestTitle(clean: string): void {
   if (!clean || !shouldTranslateTitle(clean)) return;
   if (useZhStore.getState().map[clean] || queued.has(clean) || inFlight.has(clean)) return;
+  const store = useStore.getState();
+  const provider = store.getTranslateProvider();
+  if (!provider || !store.isProviderReady(provider)) return;
   const prevErr = failedAt.get(clean);
   if (prevErr && Date.now() - prevErr < FAILURE_COOLDOWN_MS) return;
   queued.add(clean);
-  if (!flushTimer) {
-    flushTimer = window.setTimeout(() => void flush(), 50);
+  if (!flushTimer && !flushing) {
+    flushTimer = window.setTimeout(() => void flush(), 80);
   }
 }
 
 /** Lazy-fetches a cached Chinese translation for any foreign title or short text. */
 export function useTitleZh(text: string | undefined | null, enabledOverride?: boolean): string | undefined {
   const prefEnabled = useStore((s) => s.prefs.autoTranslateTitles);
+  const providerReady = useStore((s) => s.ready && s.isProviderReady(s.getTranslateProvider()));
   const enabled = enabledOverride ?? prefEnabled;
   const clean = (text ?? "").trim();
   const translatable = enabled && shouldTranslateTitle(clean);
   const raw = useZhStore((s) => (translatable ? s.map[clean] : undefined));
 
   useEffect(() => {
-    if (translatable && !useZhStore.getState().map[clean]) {
+    if (providerReady && translatable && !useZhStore.getState().map[clean]) {
       requestTitle(clean);
     }
-  }, [translatable, clean]);
+  }, [providerReady, translatable, clean]);
 
   if (!translatable || !raw) return undefined;
   const zh = raw.trim();

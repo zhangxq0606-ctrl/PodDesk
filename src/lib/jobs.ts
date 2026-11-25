@@ -2,11 +2,17 @@ import { create } from "zustand";
 import {
   batches,
   batchShape,
+  buildPresenceNote,
   buildQaSystem,
+  countTranslated,
+  isMostlyChinese,
   makeEpisodeContext,
   summaryPrompt,
+  transcriptBudget,
   transcriptForModel,
   translateBatch,
+  translationConcurrency,
+  type Batch,
   type EpisodeContext,
 } from "./ai";
 import { api, type ChatMessage, type Episode, type ProviderConfig, type Transcript } from "./api";
@@ -42,6 +48,8 @@ export interface ChatJob {
   messages: ChatMessage[];
   archive: ArchivedChat[];
   streaming: string | null;
+  thinking?: boolean;
+  startedAt?: number;
   loaded: boolean;
   error?: string | null;
 }
@@ -49,6 +57,8 @@ export interface ChatJob {
 export interface GuideJob {
   summary: string | null;
   streaming: string | null;
+  thinking?: boolean;
+  startedAt?: number;
   loaded: boolean;
   error?: string | null;
 }
@@ -209,7 +219,7 @@ export async function loadEpisodeTranscript(ep: Episode): Promise<void> {
 
     if (tr) {
       const aligned = Array.from({ length: tr.segments.length }, (_, i) => savedItems[i] ?? null);
-      const done = aligned.filter((x) => x != null && x !== "").length;
+      const done = countTranslated(aligned);
       useJobs.setState((s) => ({
         transcripts: { ...s.transcripts, [ep.id]: tr },
         officialStatus: { ...s.officialStatus, [ep.id]: "ok" },
@@ -249,7 +259,7 @@ export async function fetchOfficialSub(ep: Episode, silent = false): Promise<voi
     const res = await api.fetchOfficialTranscript(ep.id);
     const len = res.transcript.segments.length;
     const items = Array.from({ length: len }, (_, i) => res.alignedTranslation?.[i] ?? null);
-    const done = items.filter((x) => x != null && x !== "").length;
+    const done = countTranslated(items);
     useJobs.setState((s) => ({
       transcripts: { ...s.transcripts, [ep.id]: res.transcript },
       officialStatus: { ...s.officialStatus, [ep.id]: "ok" },
@@ -257,6 +267,15 @@ export async function fetchOfficialSub(ep: Episode, silent = false): Promise<voi
     putTranslation(ep.id, { items, done, total: len, running: false, error: null });
     useStore.getState().markHasTranscript(ep.id);
     if (!silent) useStore.getState().notify(`已获取字幕（${len} 段）`);
+    const store = useStore.getState();
+    if (
+      done < len &&
+      !isMostlyChinese(res.transcript.segments) &&
+      store.prefs.autoTranslateOnTranscript &&
+      store.isProviderReady(store.getTranslateProvider())
+    ) {
+      void runTranslate(ep);
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : "获取官方字幕失败";
     const noSub = /没有|暂无|not found|none/i.test(msg);
@@ -273,6 +292,27 @@ export async function fetchOfficialSub(ep: Episode, silent = false): Promise<voi
   }
 }
 
+function isRateLimitError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err ?? "");
+  return /429|rate\s*limit|usage\s*limit|quota|resource\s*exhausted|频繁|额度/i.test(msg);
+}
+
+function sleepAbortable(ms: number, signal: AbortSignal): Promise<void> {
+  if (ms <= 0) return Promise.resolve();
+  if (signal.aborted) return Promise.reject(new DOMException("Aborted", "AbortError"));
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      window.clearTimeout(timer);
+      reject(new DOMException("Aborted", "AbortError"));
+    };
+    const timer = window.setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
 export function stopTranslate(epId: string): void {
   translateAborts.get(epId)?.abort();
   translateAborts.delete(epId);
@@ -281,7 +321,7 @@ export function stopTranslate(epId: string): void {
 
 export async function runTranslate(
   ep: Episode,
-  opts?: { forceEngine?: "llm" | "google"; restart?: boolean },
+  opts?: { restart?: boolean },
 ): Promise<void> {
   const tr = useJobs.getState().transcripts[ep.id];
   if (!tr || useJobs.getState().translations[ep.id]?.running) return;
@@ -289,15 +329,12 @@ export async function runTranslate(
   const store = useStore.getState();
   const provider = store.getTranslateProvider();
   const canLlm = store.isProviderReady(provider);
-  const prefEngine = store.prefs.translateEngine;
-  const resolved: "llm" | "google" =
-    opts?.forceEngine ?? (prefEngine === "llm" ? "llm" : prefEngine === "google" ? "google" : canLlm ? "llm" : "google");
 
-  if (resolved === "llm" && !canLlm) {
+  if (!canLlm || !provider) {
     const msg =
       provider?.protocol === "cli"
-        ? `请先在设置中验证「${provider.name}」可用，或改用谷歌免费直连。`
-        : `请先在设置中配置「${provider?.name ?? "模型"}」的 API Key，或改用谷歌免费直连。`;
+        ? `请先在设置中验证「${provider.name}」可用，即可开始翻译。`
+        : `请先在设置中配置「${provider?.name ?? "模型"}」的 API Key，即可开始翻译。`;
     putTranslation(ep.id, { error: msg });
     return;
   }
@@ -309,7 +346,7 @@ export async function runTranslate(
   const prevJob = useJobs.getState().translations[ep.id];
   const prevItems = prevJob?.items ?? [];
   const prevEngine = prevJob?.engine;
-  const prevDone = prevItems.filter((x) => x != null && x !== "").length;
+  const prevDone = countTranslated(prevItems);
   const isCopyOnWrite = Boolean(opts?.restart && prevDone > 0);
   const work: (string | null)[] = opts?.restart
     ? Array(len).fill(null)
@@ -324,7 +361,7 @@ export async function runTranslate(
       retranslating: true,
       pendingDone: 0,
       total: len,
-      progressText: resolved === "llm" ? "准备重译上下文..." : "连接谷歌直连重译...",
+      progressText: "正在重新提取术语表与翻译上下文...",
       error: null,
     });
   } else {
@@ -333,95 +370,194 @@ export async function runTranslate(
       running: true,
       retranslating: false,
       pendingDone: undefined,
-      engine: resolved,
-      done: work.filter((x) => x != null && x !== "").length,
+      engine: "llm",
+      done: countTranslated(work),
       total: len,
-      progressText: resolved === "llm" ? "准备术语表与翻译上下文..." : "连接谷歌直连翻译...",
+      progressText: "准备术语表与翻译上下文...",
       error: null,
     });
   }
 
-  try {
-    if (resolved === "llm" && provider) {
-      let ctx = await loadEpisodeContext(ep.id);
-      if (!ctx) {
-        putTranslation(ep.id, { progressText: "正在提取节目摘要与专有名词表..." });
-        try {
-          ctx = await makeEpisodeContext(provider, {
-            title: ep.title,
-            show: ep.showTitle || "",
-            notes: ep.notes || "",
-            segments: tr.segments,
-            signal: ctrl.signal,
-          });
-          if (ctx) await saveEpisodeContext(ep.id, ctx);
-        } catch (err) {
-          if (ctrl.signal.aborted) throw err;
-        }
-      }
+  let fatalError: unknown = null;
 
-      const shape = batchShape(provider);
-      let round = 0;
-      while (round < 2 && !ctrl.signal.aborted) {
-        const todo = batches(tr.segments, work, shape);
-        if (todo.length === 0) break;
-        round += 1;
-        for (let idx = 0; idx < todo.length; idx++) {
-          if (ctrl.signal.aborted) break;
-          const doneNow = work.filter((x) => x != null && x !== "").length;
-          putTranslation(ep.id, {
-            ...(isCopyOnWrite ? { pendingDone: doneNow } : { done: doneNow }),
-            progressText: `大模型精译 · 第 ${idx + 1}/${todo.length} 批`,
-          });
-          const mapped = await translateBatch(provider, tr.segments, todo[idx], {
-            title: ep.title,
-            show: ep.showTitle || "",
-            ctx,
-            signal: ctrl.signal,
-            polish: store.prefs.translateQuality === "best",
-          });
-          for (const [segIdx, zhText] of mapped) {
-            work[segIdx] = zhText;
-          }
-          const nextDone = work.filter((x) => x != null && x !== "").length;
-          if (isCopyOnWrite) {
-            putTranslation(ep.id, { pendingDone: nextDone });
-          } else {
-            putTranslation(ep.id, { items: [...work], done: nextDone });
-            await api.setBlob(ep.id, "translation", JSON.stringify({ lang: "zh-CN", engine: "llm", items: work }));
-          }
-        }
-      }
-    } else {
-      const missingIds = work.map((v, i) => (v == null ? i : -1)).filter((i) => i >= 0);
-      const chunkSize = 40;
-      for (let i = 0; i < missingIds.length; i += chunkSize) {
-        if (ctrl.signal.aborted) break;
-        const sliceIds = missingIds.slice(i, i + chunkSize);
-        putTranslation(ep.id, {
-          progressText: `谷歌直连翻译 · ${Math.min(i + sliceIds.length, missingIds.length)}/${missingIds.length}`,
+  try {
+    let ctx = await loadEpisodeContext(ep.id);
+    if (!ctx || opts?.restart) {
+      putTranslation(ep.id, {
+        progressText: opts?.restart ? "正在刷新节目摘要与专有名词表..." : "正在提取节目摘要与专有名词表...",
+      });
+      const ctxCtrl = new AbortController();
+      let ctxTimedOut = false;
+      const onParentAbort = () => ctxCtrl.abort();
+      ctrl.signal.addEventListener("abort", onParentAbort, { once: true });
+      const ctxTimer = window.setTimeout(() => {
+        ctxTimedOut = true;
+        ctxCtrl.abort();
+      }, 28_000);
+      try {
+        const fresh = await makeEpisodeContext(provider, {
+          title: ep.title,
+          show: ep.showTitle || "",
+          notes: ep.notes || "",
+          segments: tr.segments,
+          signal: ctxCtrl.signal,
         });
-        const res = await api.translateGoogle(
-          sliceIds.map((idx) => tr.segments[idx].text),
-          "zh-CN",
-          ctrl.signal,
-        );
-        sliceIds.forEach((segIdx, j) => {
-          work[segIdx] = res.items[j] ?? "";
-        });
-        const nextDone = work.filter((x) => x != null && x !== "").length;
-        if (isCopyOnWrite) {
-          putTranslation(ep.id, { pendingDone: nextDone });
-        } else {
-          putTranslation(ep.id, { items: [...work], done: nextDone });
-          await api.setBlob(ep.id, "translation", JSON.stringify({ lang: "zh-CN", engine: "google", items: work }));
+        if (fresh) {
+          ctx = fresh;
+          await saveEpisodeContext(ep.id, fresh);
         }
+      } catch (err) {
+        if (ctrl.signal.aborted && !ctxTimedOut) throw err;
+      } finally {
+        window.clearTimeout(ctxTimer);
+        ctrl.signal.removeEventListener("abort", onParentAbort);
       }
     }
 
+    let persistChain = Promise.resolve();
+    let persistQueued = false;
+    const queuePersist = () => {
+      if (isCopyOnWrite || ctrl.signal.aborted) return;
+      persistQueued = true;
+      persistChain = persistChain.then(async () => {
+        if (!persistQueued || ctrl.signal.aborted) return;
+        persistQueued = false;
+        const snapshot = [...work];
+        await api.setBlob(ep.id, "translation", JSON.stringify({ lang: "zh-CN", engine: "llm", items: snapshot }));
+      });
+    };
+
+    const runConcurrentRound = (batchesList: Batch[], initialLimit: number) =>
+      new Promise<void>((resolve, reject) => {
+        const queue = [...batchesList];
+        let limit = initialLimit;
+        let active = 0;
+        let finished = 0;
+        let totalTasks = batchesList.length;
+        let settled = false;
+        let cooldownUntil = 0;
+        const rateRetried = new Set<Batch>();
+        const splitAttempted = new Set<Batch>();
+
+        const cleanup = () => {
+          ctrl.signal.removeEventListener("abort", onAbort);
+        };
+
+        const updateProgress = () => {
+          if (ctrl.signal.aborted || settled) return;
+          const doneNow = countTranslated(work);
+          const modeTag = limit > 1 ? ` · ${limit} 路并行` : "";
+          putTranslation(ep.id, {
+            ...(isCopyOnWrite ? { pendingDone: doneNow } : { done: doneNow }),
+            progressText: `大模型精译${modeTag} · ${Math.min(finished + 1, totalTasks)}/${totalTasks} 批`,
+          });
+        };
+
+        const maybeDone = () => {
+          if (settled) return;
+          if (ctrl.signal.aborted || (queue.length === 0 && active === 0)) {
+            settled = true;
+            cleanup();
+            resolve();
+          }
+        };
+
+        const pump = () => {
+          if (settled) return;
+          if (ctrl.signal.aborted) {
+            maybeDone();
+            return;
+          }
+          while (active < limit && queue.length > 0) {
+            const batch = queue.shift()!;
+            active += 1;
+            updateProgress();
+            void (async () => {
+              try {
+                const waitMs = cooldownUntil - Date.now();
+                if (waitMs > 0) await sleepAbortable(waitMs, ctrl.signal);
+                if (ctrl.signal.aborted) return;
+
+                const mapped = await translateBatch(provider, tr.segments, batch, {
+                  title: ep.title,
+                  show: ep.showTitle || "",
+                  ctx,
+                  signal: ctrl.signal,
+                  polish: store.prefs.translateQuality === "best",
+                });
+                if (ctrl.signal.aborted) return;
+
+                for (const [segIdx, zhText] of mapped) {
+                  work[segIdx] = zhText;
+                }
+                finished += 1;
+                const nextDone = countTranslated(work);
+                if (isCopyOnWrite) {
+                  putTranslation(ep.id, { pendingDone: nextDone });
+                } else {
+                  putTranslation(ep.id, { items: [...work], done: nextDone });
+                  queuePersist();
+                }
+              } catch (err) {
+                if (ctrl.signal.aborted) return;
+                if (isRateLimitError(err) && !rateRetried.has(batch)) {
+                  rateRetried.add(batch);
+                  limit = 1;
+                  cooldownUntil = Math.max(cooldownUntil, Date.now() + 2500);
+                  queue.unshift(batch);
+                  return;
+                }
+                if (batch.ids.length > 6 && !splitAttempted.has(batch)) {
+                  const mid = Math.ceil(batch.ids.length / 2);
+                  const left: Batch = { ids: batch.ids.slice(0, mid) };
+                  const right: Batch = { ids: batch.ids.slice(mid) };
+                  splitAttempted.add(left);
+                  splitAttempted.add(right);
+                  totalTasks += 1;
+                  queue.unshift(right);
+                  queue.unshift(left);
+                  return;
+                }
+                if (!settled) {
+                  settled = true;
+                  fatalError = err;
+                  cleanup();
+                  ctrl.abort();
+                  reject(err);
+                }
+              } finally {
+                active -= 1;
+                if (!settled) {
+                  if (queue.length > 0) pump();
+                  else maybeDone();
+                }
+              }
+            })();
+          }
+        };
+
+        const onAbort = () => maybeDone();
+        ctrl.signal.addEventListener("abort", onAbort, { once: true });
+        pump();
+      });
+
+    const shape = batchShape(provider);
+    const maxWorkers = translationConcurrency(provider);
+    let round = 0;
+    while (round < 2 && !ctrl.signal.aborted) {
+      const todo = batches(tr.segments, work, shape);
+      if (todo.length === 0) break;
+      round += 1;
+      await runConcurrentRound(todo, round === 1 ? maxWorkers : 1);
+    }
     if (!ctrl.signal.aborted) {
-      const doneFinal = work.filter((x) => x != null && x !== "").length;
-      if (isCopyOnWrite && doneFinal === 0) {
+      await persistChain;
+    }
+
+    if (!ctrl.signal.aborted) {
+      const doneFinal = countTranslated(work);
+      const hasEffective = work.some((x) => x != null && x.trim() !== "");
+      if (isCopyOnWrite && !hasEffective) {
         putTranslation(ep.id, {
           items: prevItems,
           done: prevDone,
@@ -436,7 +572,7 @@ export async function runTranslate(
         putTranslation(ep.id, {
           items: [...work],
           done: doneFinal,
-          engine: resolved,
+          engine: "llm",
           running: false,
           retranslating: false,
           pendingDone: undefined,
@@ -444,20 +580,23 @@ export async function runTranslate(
           error: null,
         });
         if (isCopyOnWrite) {
-          await api.setBlob(ep.id, "translation", JSON.stringify({ lang: "zh-CN", engine: resolved, items: work }));
+          await api.setBlob(ep.id, "translation", JSON.stringify({ lang: "zh-CN", engine: "llm", items: work }));
         }
         useStore.getState().notify(`中文译文已完成（${doneFinal}/${len} 段）`);
       }
     }
   } catch (err) {
-    if (!(err instanceof DOMException && err.name === "AbortError") && !ctrl.signal.aborted) {
+    const actualErr = fatalError ?? err;
+    const userAborted =
+      !fatalError && ((actualErr instanceof DOMException && actualErr.name === "AbortError") || ctrl.signal.aborted);
+    if (!userAborted) {
       putTranslation(ep.id, {
         ...(isCopyOnWrite ? { items: prevItems, done: prevDone, engine: prevEngine } : {}),
         running: false,
         retranslating: false,
         pendingDone: undefined,
         progressText: undefined,
-        error: err instanceof Error ? err.message : "翻译失败",
+        error: actualErr instanceof Error ? actualErr.message : "翻译失败",
       });
     } else {
       putTranslation(ep.id, {
@@ -593,7 +732,11 @@ export function stopChatAsk(epId: string): void {
   chatAborts.delete(epId);
 }
 
-export async function sendChatAsk(ep: Episode, nextHistory: ChatMessage[]): Promise<void> {
+export async function sendChatAsk(
+  ep: Episode,
+  nextHistory: ChatMessage[],
+  opts?: { followPlayback?: boolean; skipPresence?: boolean },
+): Promise<void> {
   const tr = useJobs.getState().transcripts[ep.id];
   const store = useStore.getState();
   const provider: ProviderConfig | undefined = store.getChatProvider();
@@ -606,15 +749,29 @@ export async function sendChatAsk(ep: Episode, nextHistory: ChatMessage[]): Prom
     return;
   }
 
-  const trItems = useJobs.getState().translations[ep.id]?.items;
-  const fullTranscript = transcriptForModel(tr.segments, trItems);
+  const [trItems, epCtx] = [useJobs.getState().translations[ep.id]?.items, await loadEpisodeContext(ep.id)];
+  const fullTranscript = transcriptForModel(tr.segments, trItems, transcriptBudget(provider));
   const playbackPos = store.current?.id === ep.id ? store.time : ep.progress;
   const { chatInstruction, chatInstructionEnabled } = store.prefs;
   const customPref = chatInstructionEnabled && chatInstruction.trim() ? chatInstruction.trim() : undefined;
-  const system = buildQaSystem(ep.title, ep.showTitle || "", fullTranscript, playbackPos, customPref);
+  const system = buildQaSystem(ep.title, ep.showTitle || "", fullTranscript, customPref, {
+    notes: ep.notes,
+    ctx: epCtx,
+  });
+
+  const lastUserText = nextHistory[nextHistory.length - 1]?.role === "user" ? nextHistory[nextHistory.length - 1].content : "";
+  const presenceNote = buildPresenceNote(tr.segments, playbackPos, lastUserText, {
+    translation: trItems,
+    skipPresence: opts?.followPlayback === false || opts?.skipPresence,
+  });
+  const apiMessages = nextHistory.map(({ role, content }, idx) =>
+    presenceNote && idx === nextHistory.length - 1 && role === "user"
+      ? { role, content: `${content}\n\n${presenceNote}` }
+      : { role, content },
+  );
 
   await saveEpisodeChat(ep.id, nextHistory);
-  putChat(ep.id, { streaming: "", error: null });
+  putChat(ep.id, { streaming: "", thinking: false, startedAt: Date.now(), error: null });
 
   const ctrl = new AbortController();
   chatAborts.set(ep.id, ctrl);
@@ -630,11 +787,14 @@ export async function sendChatAsk(ep: Episode, nextHistory: ChatMessage[]): Prom
         model: provider.model,
       },
       system,
-      messages: nextHistory.map(({ role, content }) => ({ role, content })),
+      messages: apiMessages,
       signal: ctrl.signal,
+      onThinking: () => {
+        if (!partial) putChat(ep.id, { thinking: true });
+      },
       onDelta: (delta) => {
         partial += delta;
-        putChat(ep.id, { streaming: partial });
+        putChat(ep.id, { streaming: partial, thinking: false });
       },
     });
     const finalText = answer.trim() ? answer : partial.trim();
@@ -646,7 +806,7 @@ export async function sendChatAsk(ep: Episode, nextHistory: ChatMessage[]): Prom
     const merged = partial ? `${partial}\n\n${note}` : note;
     await saveEpisodeChat(ep.id, [...nextHistory, { role: "assistant", content: merged, model: provider.name }]);
   } finally {
-    putChat(ep.id, { streaming: null });
+    putChat(ep.id, { streaming: null, thinking: false, startedAt: undefined });
     chatAborts.delete(ep.id);
   }
 }
@@ -681,14 +841,17 @@ export async function runEpisodeGuide(ep: Episode): Promise<void> {
     return;
   }
 
-  const trItems = useJobs.getState().translations[ep.id]?.items;
-  const fullTranscript = transcriptForModel(tr.segments, trItems);
-  const system = buildQaSystem(ep.title, ep.showTitle || "", fullTranscript);
+  const [trItems, epCtx] = [useJobs.getState().translations[ep.id]?.items, await loadEpisodeContext(ep.id)];
+  const fullTranscript = transcriptForModel(tr.segments, trItems, transcriptBudget(provider));
+  const system = buildQaSystem(ep.title, ep.showTitle || "", fullTranscript, undefined, {
+    notes: ep.notes,
+    ctx: epCtx,
+  });
   const totalSec = tr.segments[tr.segments.length - 1]?.end ?? ep.duration;
 
   const ctrl = new AbortController();
   guideAborts.set(ep.id, ctrl);
-  putGuide(ep.id, { streaming: "", error: null });
+  putGuide(ep.id, { streaming: "", thinking: false, startedAt: Date.now(), error: null });
   let partial = "";
 
   try {
@@ -703,19 +866,24 @@ export async function runEpisodeGuide(ep: Episode): Promise<void> {
       system,
       messages: [{ role: "user", content: summaryPrompt(totalSec) }],
       signal: ctrl.signal,
+      onThinking: () => {
+        if (!partial) putGuide(ep.id, { thinking: true });
+      },
       onDelta: (delta) => {
         partial += delta;
-        putGuide(ep.id, { streaming: partial });
+        putGuide(ep.id, { streaming: partial, thinking: false });
       },
     });
     const out = answer.trim() ? answer : partial.trim();
     if (!out) throw new Error("模型没有返回内容，请重试");
-    putGuide(ep.id, { summary: out, streaming: null, loaded: true, error: null });
+    putGuide(ep.id, { summary: out, streaming: null, thinking: false, startedAt: undefined, loaded: true, error: null });
     await api.setBlob(ep.id, "summary", out);
   } catch (err) {
     const aborted = (err instanceof DOMException && err.name === "AbortError") || ctrl.signal.aborted;
     putGuide(ep.id, {
       streaming: null,
+      thinking: false,
+      startedAt: undefined,
       error: aborted ? null : err instanceof Error ? err.message : "生成导读失败",
     });
   } finally {

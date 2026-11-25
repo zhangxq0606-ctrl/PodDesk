@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, Check, ChevronDown, Copy, Download, Loader2, Mic, RefreshCw, ScrollText, Sparkles, Square } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, ChevronDown, Copy, Download, Languages, Loader2, Mic, RefreshCw, ScrollText, Sparkles, Square } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
-import { hasTimelineHeading, parseGuideMarkdown } from "../../lib/ai";
+import { batches, batchShape, countTranslated, hasTimelineHeading, isMostlyChinese, parseGuideMarkdown } from "../../lib/ai";
 import type { Episode } from "../../lib/api";
-import { fetchOfficialSub, loadEpisodeGuide, runEpisodeGuide, runTranscribe, stopEpisodeGuide, stopTranscribe, useJobs } from "../../lib/jobs";
+import { fetchOfficialSub, loadEpisodeGuide, runEpisodeGuide, runTranscribe, runTranslate, stopEpisodeGuide, stopTranscribe, useJobs } from "../../lib/jobs";
 import { useLayout } from "../../lib/layout";
 import { CLOUD_ASR_PRESETS } from "../../lib/providers";
 import { downloadTextFile, formatAnswerCopy, safeFileName } from "../../lib/subexport";
 import { useStore } from "../../store";
 import { CassetteArt, PageArt, WaveToTextArt } from "../Illustrations";
 import { Markdown } from "../Markdown";
+import { ThinkingHint } from "./ChatPanel";
 import { copyTextSafe } from "./CopyMenu";
 import { shortModelName } from "./ModelPicker";
 
@@ -144,12 +145,14 @@ export function GuideTimelinePanel({ ep }: { ep: Episode }) {
   const officialError = useJobs((s) => s.officialError[ep.id]);
   const asrJob = useJobs((s) => s.asr[ep.id]);
   const guide = useJobs((s) => s.guides[ep.id]);
+  const trJob = useJobs((s) => s.translations[ep.id]);
 
   const {
     seekToEpisode,
     openSettings,
     setImportOpen,
     getChatProvider,
+    getTranslateProvider,
     isProviderReady,
     asrChoice,
     asrLang,
@@ -159,6 +162,9 @@ export function GuideTimelinePanel({ ep }: { ep: Episode }) {
     savePrefs,
     chatProviderId,
     chatModel,
+    translateProviderId,
+    translateModel,
+    guideWithTranslate,
     agents,
     verifiedAgents,
     providerOverrides,
@@ -168,6 +174,7 @@ export function GuideTimelinePanel({ ep }: { ep: Episode }) {
       openSettings: s.openSettings,
       setImportOpen: s.setImportOpen,
       getChatProvider: s.getChatProvider,
+      getTranslateProvider: s.getTranslateProvider,
       isProviderReady: s.isProviderReady,
       asrChoice: s.prefs.asrChoice,
       asrLang: s.prefs.asrLang,
@@ -177,6 +184,9 @@ export function GuideTimelinePanel({ ep }: { ep: Episode }) {
       savePrefs: s.savePrefs,
       chatProviderId: s.chatProviderId,
       chatModel: s.chatModel,
+      translateProviderId: s.prefs.translateProviderId,
+      translateModel: s.prefs.translateModel,
+      guideWithTranslate: s.prefs.guideWithTranslate,
       agents: s.agents,
       verifiedAgents: s.verifiedAgents,
       providerOverrides: s.providerOverrides,
@@ -211,7 +221,21 @@ export function GuideTimelinePanel({ ep }: { ep: Episode }) {
     () => getChatProvider(),
     [getChatProvider, chatProviderId, chatModel, agents, verifiedAgents, providerOverrides],
   );
+  const trProvider = useMemo(
+    () => getTranslateProvider(),
+    [getTranslateProvider, translateProviderId, translateModel, chatProviderId, chatModel, agents, verifiedAgents, providerOverrides],
+  );
   const providerReady = isProviderReady(provider);
+  const trReady = isProviderReady(trProvider);
+  const segments = transcript?.segments ?? [];
+  const totalSegs = segments.length;
+  const doneSegs = Math.min(totalSegs, countTranslated(trJob?.items ?? []));
+  const wantsZh = totalSegs > 0 && !isMostlyChinese(segments);
+  const needsTranslate = wantsZh && doneSegs < totalSegs && !trJob?.running;
+  const pendingBatches = useMemo(
+    () => (needsTranslate ? batches(segments, trJob?.items ?? [], batchShape(trProvider)).length : 0),
+    [needsTranslate, segments, trJob?.items, trProvider],
+  );
   const streaming = guide?.streaming ?? null;
   const summary = guide?.summary ?? null;
   const error = guide?.error ?? null;
@@ -464,6 +488,11 @@ export function GuideTimelinePanel({ ep }: { ep: Episode }) {
     const modelLabel = provider
       ? `${provider.name}${provider.model ? ` · ${shortModelName(provider.model)}` : ""}`
       : "未配置";
+    const trModelLabel = trProvider
+      ? `${trProvider.name}${trProvider.model ? ` · ${shortModelName(trProvider.model)}` : ""}`
+      : "未配置";
+    const willTranslate = needsTranslate && guideWithTranslate;
+    const missingTrModel = willTranslate && !trReady;
     return (
       <div className="panel-empty gt-fade-in">
         <div className="gt-empty">
@@ -472,6 +501,24 @@ export function GuideTimelinePanel({ ep }: { ep: Episode }) {
           <p className="muted small">
             一次通读全片文字稿（共 {transcript.segments.length} 段），左侧生成全内容精炼梳理，此处生成随播放推进的章节时间线。
           </p>
+          {needsTranslate && (
+            <label
+              className="gt-consent-check"
+              title={trModelLabel !== modelLabel ? `翻译模型：${trModelLabel}` : undefined}
+            >
+              <input
+                type="checkbox"
+                checked={guideWithTranslate}
+                onChange={(e) => savePrefs({ guideWithTranslate: e.target.checked })}
+              />
+              <span>
+                {doneSegs > 0
+                  ? `补译剩余字幕（${totalSegs - doneSegs} 段）`
+                  : `同时翻译字幕（约 ${pendingBatches} 批）`}
+                {trModelLabel !== modelLabel ? ` · ${trModelLabel}` : ""}
+              </span>
+            </label>
+          )}
           {error && (
             <div className="setup-note">
               <span>{error}</span>
@@ -488,11 +535,26 @@ export function GuideTimelinePanel({ ep }: { ep: Episode }) {
                 openSettings("ai", provider?.id);
                 return;
               }
+              if (missingTrModel) {
+                openSettings("ai", trProvider?.id);
+                return;
+              }
               void runEpisodeGuide(ep);
+              if (willTranslate && trReady) {
+                void runTranslate(ep);
+              }
             }}
           >
             <Sparkles size={15} />
-            <span>{providerReady ? "生成导读与梳理" : "去设置验证模型"}</span>
+            <span>
+              {!providerReady
+                ? "去设置验证模型"
+                : missingTrModel
+                  ? "去配置翻译模型"
+                  : willTranslate
+                    ? "生成导读与双语翻译"
+                    : "生成导读与梳理"}
+            </span>
           </button>
           <p className="gt-model-hint">
             当前模型：{modelLabel}
@@ -561,12 +623,18 @@ export function GuideTimelinePanel({ ep }: { ep: Episode }) {
                   </div>
                 </div>
               ))}
-              <p className="muted small gt-sk-hint thinking-shine">
-                {hasTimelineHeading(rawMd)
-                  ? "正在生成首个章节时间线…"
-                  : parsed.overviewMd
-                    ? "正在提炼左侧核心要点，随后生成章节时间线…"
-                    : "正在通读整集文字稿并生成导读与时间线…"}
+              <p className="muted small gt-sk-hint">
+                <ThinkingHint
+                  thinking={guide?.thinking}
+                  startedAt={guide?.startedAt}
+                  idleText={
+                    hasTimelineHeading(rawMd)
+                      ? "正在生成首个章节时间线…"
+                      : parsed.overviewMd
+                        ? "正在提炼左侧核心要点，随后生成章节时间线…"
+                        : "正在通读整集文字稿并生成导读与时间线…"
+                  }
+                />
               </p>
             </div>
           ) : parsed.timelineRaw || rawMd ? (
@@ -575,7 +643,11 @@ export function GuideTimelinePanel({ ep }: { ep: Episode }) {
             </div>
           ) : (
             <p className="muted row-tight">
-              <span className="thinking-shine">正在通读整集文字稿并生成导读与时间线…</span>
+              <ThinkingHint
+                thinking={guide?.thinking}
+                startedAt={guide?.startedAt}
+                idleText="正在通读整集文字稿并生成导读与时间线…"
+              />
             </p>
           )}
 
@@ -607,7 +679,7 @@ export function GuideTimelinePanel({ ep }: { ep: Episode }) {
         {isStreaming ? (
           <>
             <span className="muted small row-tight">
-              <span className="thinking-shine">正在生成中…</span>
+              <ThinkingHint thinking={guide?.thinking} startedAt={guide?.startedAt} idleText="正在生成中…" />
             </span>
             <span className="spacer" />
             <button type="button" className="btn sm ghost" onClick={() => stopEpisodeGuide(ep.id)}>
@@ -624,6 +696,23 @@ export function GuideTimelinePanel({ ep }: { ep: Episode }) {
                 : "已保存"}
             </span>
             <span className="spacer" />
+            {needsTranslate && (
+              <button
+                type="button"
+                className="btn sm primary gt-foot-btn"
+                title={trReady ? "将当前外文字幕精译为中英双语" : "去设置配置或验证翻译模型"}
+                onClick={() => {
+                  if (!trReady) {
+                    openSettings("ai", trProvider?.id);
+                    return;
+                  }
+                  void runTranslate(ep);
+                }}
+              >
+                <Languages size={13} />
+                <span className="gt-btn-label">{trReady ? "译为双语" : "配置翻译"}</span>
+              </button>
+            )}
             {(Boolean(error) || timeline.length === 0) && (
               <button
                 type="button"

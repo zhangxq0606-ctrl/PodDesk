@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Copy, Languages, Loader2, Sparkles } from "lucide-react";
-import { api } from "../lib/api";
+import { Copy, Sparkles } from "lucide-react";
 import { queueDraftAsk } from "../lib/jobs";
 import { useStore } from "../store";
 
@@ -16,7 +15,6 @@ interface SelectionInfo {
 
 export function SelectionTools({ onAskFocus }: { onAskFocus?: () => void }) {
   const [sel, setSel] = useState<SelectionInfo | null>(null);
-  const [tr, setTr] = useState<string | null>(null);
   const timerRef = useRef<number | undefined>(undefined);
 
   useEffect(() => {
@@ -24,7 +22,6 @@ export function SelectionTools({ onAskFocus }: { onAskFocus?: () => void }) {
       const s = window.getSelection();
       if (!s || s.isCollapsed || !s.rangeCount) {
         setSel(null);
-        setTr(null);
         return;
       }
       const text = s.toString().replace(/\s+/g, " ").trim();
@@ -44,7 +41,6 @@ export function SelectionTools({ onAskFocus }: { onAskFocus?: () => void }) {
           undefined) ||
         undefined;
       const below = rect.top < 72;
-      setTr(null);
       setSel({
         text,
         x: Math.max(90, Math.min(rect.left + rect.width / 2, window.innerWidth - 90)),
@@ -89,18 +85,6 @@ export function SelectionTools({ onAskFocus }: { onAskFocus?: () => void }) {
     }
   };
 
-  const handleTranslate = async () => {
-    if (!sel) return;
-    setTr("...");
-    try {
-      const cjk = /[\u4e00-\u9fff]/.test(sel.text) && !/[a-z]{4}/i.test(sel.text);
-      const res = await api.translateGoogle([sel.text], cjk ? "en" : "zh-CN");
-      setTr(res.items[0] || "无翻译结果");
-    } catch {
-      setTr("谷歌翻译暂时连不上，请检查代理或网络");
-    }
-  };
-
   const handleAskAi = () => {
     if (!sel) return;
     const ep = currentEpisode();
@@ -129,11 +113,7 @@ export function SelectionTools({ onAskFocus }: { onAskFocus?: () => void }) {
         <button type="button" onClick={() => void handleCopy()}>
           <Copy size={13} /> 带出处复制
         </button>
-        <button type="button" onClick={() => void handleTranslate()}>
-          <Languages size={13} /> 翻译
-        </button>
       </div>
-      {tr && <div className="sel-tr">{tr === "..." ? <Loader2 size={13} className="spin" /> : tr}</div>}
     </div>
   );
 }

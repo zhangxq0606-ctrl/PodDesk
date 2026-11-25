@@ -16,7 +16,7 @@ import {
   X,
 } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
-import { isMostlyChinese, type EpisodeContext } from "../lib/ai";
+import { countTranslated, isMostlyChinese, type EpisodeContext } from "../lib/ai";
 import { type Episode, type Segment } from "../lib/api";
 import { ask } from "../lib/confirm";
 import { clock } from "../lib/format";
@@ -457,7 +457,6 @@ export function TranscriptPanel({ ep }: { ep: Episode }) {
   const segments = transcript?.segments ?? EMPTY_SEGMENTS;
   const {
     mode,
-    trEngine,
     trProviderId,
     trModel,
     chatProviderId,
@@ -466,10 +465,10 @@ export function TranscriptPanel({ ep }: { ep: Episode }) {
     keyStatus,
     providerOverrides,
     seekToEpisode,
+    openSettings,
   } = useStore(
     useShallow((s) => ({
       mode: s.prefs.subtitleMode,
-      trEngine: s.prefs.translateEngine,
       trProviderId: s.prefs.translateProviderId,
       trModel: s.prefs.translateModel,
       chatProviderId: s.chatProviderId,
@@ -478,6 +477,7 @@ export function TranscriptPanel({ ep }: { ep: Episode }) {
       keyStatus: s.keyStatus,
       providerOverrides: s.providerOverrides,
       seekToEpisode: s.seekToEpisode,
+      openSettings: s.openSettings,
     })),
   );
   const active = useStore((s) => (s.current?.id === ep.id ? activeIndex(segments, s.time) : -1));
@@ -732,22 +732,20 @@ export function TranscriptPanel({ ep }: { ep: Episode }) {
 
   const total = segments.length;
   const items = trJob?.items ?? [];
-  const done = Math.min(total, items.filter((x) => x != null && x !== "").length);
+  const done = Math.min(total, countTranslated(items));
   const running = !!trJob?.running;
   const pending = wantsZh && running;
-  const defaultEngine: "llm" | "google" =
-    trEngine === "llm" ? "llm" : trEngine === "google" ? "google" : canLlm ? "llm" : "google";
   const hasDone = total > 0 && done >= total;
   const llmDone = Boolean(hasDone && trJob?.engine === "llm");
   const showRetranscribe = Boolean(
     (ep.audioUrl || ep.videoId) && !["rss", "youtube", "import"].includes(transcript.source),
   );
   const doneSourceLabel =
-    trJob?.engine === "google" ? "谷歌快翻" : trJob?.engine === "llm" ? "大模型精译" : "中文字幕";
+    trJob?.engine === "google" ? "旧版快翻" : trJob?.engine === "llm" ? "大模型精译" : "中文字幕";
   const progressDone = trJob?.retranslating ? (trJob.pendingDone ?? 0) : done;
   const trEngineHint =
-    defaultEngine === "google" || !canLlm || !trProvider
-      ? "谷歌免费直连（需可访问 Google，走本机代理）"
+    !canLlm || !trProvider
+      ? "请先在设置中配置或验证可用 AI 模型"
       : `${trProvider.name}${trProvider.model ? ` · ${trProvider.model.split("/").pop()}` : ""} 术语精译`;
 
   const handleExport = (fmt: SubFormat) => {
@@ -861,34 +859,25 @@ export function TranscriptPanel({ ep }: { ep: Episode }) {
                     role="menuitem"
                     onClick={() => {
                       setMenuOpen(false);
+                      if (!canLlm) {
+                        openSettings("ai", trProvider?.id);
+                        return;
+                      }
                       if (llmDone) {
                         void ask({
                           title: "重新大模型精译？",
                           message: `当前已有 ${total} 段大模型精译，重新精译将在完成后替换现有译文。`,
                           ok: "重新精译",
                         }).then((yes) => {
-                          if (yes) void runTranslate(ep, { forceEngine: "llm", restart: true });
+                          if (yes) void runTranslate(ep, { restart: true });
                         });
                       } else {
-                        void runTranslate(ep, { forceEngine: "llm", restart: true });
+                        void runTranslate(ep, { restart: true });
                       }
                     }}
                   >
                     <Languages size={14} /> {llmDone ? "重新大模型精译" : "用大模型术语精译"}
                   </button>
-                  {!llmDone && (
-                    <button
-                      type="button"
-                      role="menuitem"
-                      title="需可访问 Google，自动走本机代理"
-                      onClick={() => {
-                        setMenuOpen(false);
-                        void runTranslate(ep, { forceEngine: "google", restart: true });
-                      }}
-                    >
-                      <Languages size={14} /> 用谷歌免费直连重译
-                    </button>
-                  )}
                 </>
               )}
               {!wantsZh && showRetranscribe && <div className="pop-sep" />}
@@ -940,7 +929,7 @@ export function TranscriptPanel({ ep }: { ep: Episode }) {
             ) : done === 0 ? (
               <span>共 {total} 段 · 尚未翻译</span>
             ) : (
-              <span>当前为谷歌快翻（{total} 段）</span>
+              <span>当前为旧版译文（{total} 段）</span>
             )}
           </div>
 
@@ -954,22 +943,22 @@ export function TranscriptPanel({ ep }: { ep: Episode }) {
                 <button
                   type="button"
                   className="btn primary sm"
-                  title={`当前引擎：${trEngineHint}`}
-                  onClick={() => void runTranslate(ep, { forceEngine: defaultEngine })}
+                  title={trEngineHint}
+                  onClick={() => {
+                    if (!canLlm) {
+                      openSettings("ai", trProvider?.id);
+                      return;
+                    }
+                    void runTranslate(ep);
+                  }}
                 >
-                  {defaultEngine === "llm"
-                    ? done > 0
-                      ? "继续大模型翻译"
-                      : "大模型翻译"
-                    : done > 0
-                      ? "继续谷歌翻译"
-                      : "谷歌翻译"}
+                  {!canLlm ? "去设置模型" : done > 0 ? "继续大模型翻译" : "大模型翻译"}
                 </button>
               ) : trJob?.engine === "google" && canLlm ? (
                 <button
                   type="button"
                   className="btn ghost sm"
-                  onClick={() => void runTranslate(ep, { forceEngine: "llm", restart: true })}
+                  onClick={() => void runTranslate(ep, { restart: true })}
                 >
                   升级大模型精译
                 </button>
@@ -1067,7 +1056,7 @@ export function TranscriptPanel({ ep }: { ep: Episode }) {
       {glossaryOpen && (
         <GlossaryModal
           ep={ep}
-          onRetranslate={() => void runTranslate(ep, { forceEngine: "llm", restart: true })}
+          onRetranslate={() => void runTranslate(ep, { restart: true })}
           onClose={() => setGlossaryOpen(false)}
         />
       )}

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Captions, CheckCircle2, Languages, Loader2, Pause, Play, Square, Volume1, Volume2, VolumeX } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
-import { isMostlyChinese, parseGuideMarkdown } from "../../lib/ai";
+import { countTranslated, isMostlyChinese, parseGuideMarkdown } from "../../lib/ai";
 import type { Episode } from "../../lib/api";
 import { clock } from "../../lib/format";
 import { runTranslate, stopTranslate, useJobs } from "../../lib/jobs";
@@ -106,7 +106,6 @@ function VideoSubtitleMenu({ ep }: { ep: Episode }) {
   const trJob = useJobs((s) => s.translations[ep.id]);
   const {
     mode,
-    trEngine,
     trProviderId,
     trModel,
     chatProviderId,
@@ -115,12 +114,12 @@ function VideoSubtitleMenu({ ep }: { ep: Episode }) {
     keyStatus,
     providerOverrides,
     savePrefs,
+    openSettings,
     getTranslateProvider,
     isProviderReady,
   } = useStore(
     useShallow((s) => ({
       mode: s.prefs.subtitleMode,
-      trEngine: s.prefs.translateEngine,
       trProviderId: s.prefs.translateProviderId,
       trModel: s.prefs.translateModel,
       chatProviderId: s.chatProviderId,
@@ -129,6 +128,7 @@ function VideoSubtitleMenu({ ep }: { ep: Episode }) {
       keyStatus: s.keyStatus,
       providerOverrides: s.providerOverrides,
       savePrefs: s.savePrefs,
+      openSettings: s.openSettings,
       getTranslateProvider: s.getTranslateProvider,
       isProviderReady: s.isProviderReady,
     })),
@@ -166,18 +166,16 @@ function VideoSubtitleMenu({ ep }: { ep: Episode }) {
   const segments = transcript?.segments ?? [];
   const total = segments.length;
   const items = trJob?.items ?? [];
-  const done = Math.min(total, items.filter((x) => x != null && x !== "").length);
+  const done = Math.min(total, countTranslated(items));
   const running = !!trJob?.running;
   const wantsZh = total > 0 && !isMostlyChinese(segments);
-  const defaultEngine: "llm" | "google" =
-    trEngine === "llm" ? "llm" : trEngine === "google" ? "google" : canLlm ? "llm" : "google";
   const hasDone = total > 0 && done >= total;
   const doneSourceLabel =
-    trJob?.engine === "google" ? "谷歌快翻" : trJob?.engine === "llm" ? "大模型精译" : "中文字幕";
+    trJob?.engine === "google" ? "旧版快翻" : trJob?.engine === "llm" ? "大模型精译" : "中文字幕";
   const progressDone = trJob?.retranslating ? (trJob.pendingDone ?? 0) : done;
   const trEngineHint =
-    defaultEngine === "google" || !canLlm || !trProvider
-      ? "谷歌免费直连（需可访问 Google，走本机代理）"
+    !canLlm || !trProvider
+      ? "请先在设置中配置或验证可用 AI 模型"
       : `${trProvider.name}${trProvider.model ? ` · ${trProvider.model.split("/").pop()}` : ""} 术语精译`;
 
   return (
@@ -272,109 +270,51 @@ function VideoSubtitleMenu({ ep }: { ep: Episode }) {
                   </button>
                 ) : hasDone ? (
                   trJob?.engine === "google" && canLlm ? (
-                    <>
-                      <button
-                        type="button"
-                        className="btn sm primary"
-                        title={trEngineHint}
-                        onClick={() => void runTranslate(ep, { forceEngine: "llm", restart: true })}
-                      >
-                        <Languages size={13} />
-                        <span>升级大模型精译</span>
-                      </button>
-                      <div className="sub-tr-alts">
-                        <button
-                          type="button"
-                          className="link-btn"
-                          title="用谷歌快翻重新翻译"
-                          onClick={() => void runTranslate(ep, { forceEngine: "google", restart: true })}
-                        >
-                          重译
-                        </button>
-                      </div>
-                    </>
+                    <button
+                      type="button"
+                      className="btn sm primary"
+                      title={trEngineHint}
+                      onClick={() => void runTranslate(ep, { restart: true })}
+                    >
+                      <Languages size={13} />
+                      <span>升级大模型精译</span>
+                    </button>
                   ) : (
                     <div className="sub-tr-alts">
                       <button
                         type="button"
                         className="link-btn"
                         title={`使用当前默认引擎重新翻译（${trEngineHint}）`}
-                        onClick={() => void runTranslate(ep, { forceEngine: defaultEngine, restart: true })}
+                        onClick={() => {
+                          if (!canLlm) {
+                            setOpen(false);
+                            openSettings("ai", trProvider?.id);
+                            return;
+                          }
+                          void runTranslate(ep, { restart: true });
+                        }}
                       >
-                        重新翻译
+                        {canLlm ? "重新翻译" : "配置模型后重译"}
                       </button>
-                      {defaultEngine === "llm" ? (
-                        trJob?.engine !== "llm" && (
-                          <button
-                            type="button"
-                            className="link-btn"
-                            title="需可访问 Google，自动走本机代理"
-                            onClick={() => void runTranslate(ep, { forceEngine: "google", restart: true })}
-                          >
-                            改用谷歌快翻
-                          </button>
-                        )
-                      ) : canLlm && trJob?.engine !== "llm" ? (
-                        <button
-                          type="button"
-                          className="link-btn"
-                          onClick={() => void runTranslate(ep, { forceEngine: "llm", restart: true })}
-                        >
-                          改用大模型精译
-                        </button>
-                      ) : null}
                     </div>
                   )
                 ) : (
-                  <>
-                    <button
-                      type="button"
-                      className="btn sm primary"
-                      title={`当前引擎：${trEngineHint}`}
-                      onClick={() => void runTranslate(ep, { forceEngine: defaultEngine })}
-                    >
-                      <Languages size={13} />
-                      <span>
-                        {defaultEngine === "llm"
-                          ? done > 0
-                            ? "继续大模型翻译"
-                            : "大模型翻译"
-                          : done > 0
-                            ? "继续谷歌翻译"
-                            : "谷歌翻译"}
-                      </span>
-                    </button>
-                    <div className="sub-tr-alts">
-                      {defaultEngine === "llm" ? (
-                        <button
-                          type="button"
-                          className="link-btn"
-                          title="需可访问 Google，自动走本机代理"
-                          onClick={() =>
-                            void runTranslate(ep, {
-                              forceEngine: "google",
-                              restart: done > 0 && trJob?.engine !== "google",
-                            })
-                          }
-                        >
-                          改用谷歌快翻
-                        </button>
-                      ) : canLlm ? (
-                        <button
-                          type="button"
-                          className="link-btn"
-                          onClick={() =>
-                            void runTranslate(ep, {
-                              forceEngine: "llm",
-                              restart: done > 0 && trJob?.engine !== "llm",
-                            })
-                          }
-                        >
-                          改用大模型精译
-                        </button>
-                      ) : null}
-                    </div>
-                  </>
+                  <button
+                    type="button"
+                    className="btn sm primary"
+                    title={trEngineHint}
+                    onClick={() => {
+                      if (!canLlm) {
+                        setOpen(false);
+                        openSettings("ai", trProvider?.id);
+                        return;
+                      }
+                      void runTranslate(ep);
+                    }}
+                  >
+                    <Languages size={13} />
+                    <span>{!canLlm ? "去设置模型" : done > 0 ? "继续大模型翻译" : "大模型翻译"}</span>
+                  </button>
                 )}
               </div>
             </div>

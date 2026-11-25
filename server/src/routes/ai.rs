@@ -1,5 +1,5 @@
 use super::{api_error, AppState};
-use crate::{agents, db, llm, model::short_hash, translate};
+use crate::{agents, llm};
 use axum::{
     extract::State,
     http::StatusCode,
@@ -8,82 +8,122 @@ use axum::{
         IntoResponse, Json, Response,
     },
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::{collections::HashMap, convert::Infallible, sync::Arc};
+use std::{
+    collections::{HashMap, VecDeque},
+    convert::Infallible,
+    pin::Pin,
+    sync::{
+        atomic::{AtomicBool, AtomicU64, Ordering},
+        Arc, Mutex,
+    },
+    task::{Context, Poll},
+    time::{Instant, SystemTime, UNIX_EPOCH},
+};
 use tokio_stream::{wrappers::UnboundedReceiverStream, Stream};
 
-#[derive(Deserialize)]
+const MAX_RECENT_TRACES: usize = 40;
+
+#[derive(Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct TranslateGoogleBody {
-    lines: Vec<String>,
-    target_lang: Option<String>,
+pub struct ProviderMetric {
+    pub calls: u64,
+    pub errors: u64,
+    pub rate_limits: u64,
+    pub cancelled: u64,
+    pub ttft_samples: u64,
+    pub ttft_sum_ms: u64,
+    pub total_sum_ms: u64,
+    pub avg_ttft_ms: Option<u64>,
+    pub avg_total_ms: u64,
+    pub last_ttft_ms: Option<u64>,
+    pub last_total_ms: u64,
 }
 
-pub async fn translate_google(
-    State(state): State<Arc<AppState>>,
-    Json(body): Json<TranslateGoogleBody>,
-) -> Response {
-    if body.lines.is_empty() {
-        return Json(json!({ "items": Vec::<String>::new() })).into_response();
-    }
-    let tl = body
-        .target_lang
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .unwrap_or("zh-CN")
-        .to_string();
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecentLlmTrace {
+    pub at_ms: u64,
+    pub provider: String,
+    pub priority: String,
+    pub ttft_ms: Option<u64>,
+    pub total_ms: u64,
+    pub ok: bool,
+    pub cancelled: bool,
+    pub error: Option<String>,
+}
 
-    let mut cached: HashMap<String, String> = HashMap::new();
-    let mut missing: Vec<String> = Vec::new();
-    {
-        let conn = state.db_lock();
-        for line in &body.lines {
-            let trimmed = line.trim();
-            if trimmed.is_empty() || cached.contains_key(trimmed) {
-                continue;
-            }
-            let key = format!("{tl}|{}", short_hash(trimmed, 24));
-            match db::tr_get(&conn, &key) {
-                Ok(Some(hit)) => {
-                    cached.insert(trimmed.to_string(), hit);
-                }
-                _ => {
-                    if !missing.iter().any(|m| m == trimmed) {
-                        missing.push(trimmed.to_string());
-                    }
-                }
-            }
+#[derive(Default)]
+struct MetricsStore {
+    providers: HashMap<String, ProviderMetric>,
+    recent: VecDeque<RecentLlmTrace>,
+}
+
+static AI_METRICS: once_cell::sync::Lazy<Mutex<MetricsStore>> =
+    once_cell::sync::Lazy::new(|| Mutex::new(MetricsStore::default()));
+
+fn now_unix_ms() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+}
+
+fn is_rate_limit_text(msg: &str) -> bool {
+    let l = msg.to_lowercase();
+    l.contains("429")
+        || l.contains("rate limit")
+        || l.contains("usage limit")
+        || l.contains("quota")
+        || l.contains("resource exhausted")
+        || msg.contains("频繁")
+        || msg.contains("额度")
+}
+
+fn apply_metric(
+    store: &mut MetricsStore,
+    key: &str,
+    priority: &str,
+    ttft_ms: Option<u64>,
+    total_ms: u64,
+    err_msg: Option<&str>,
+    cancelled: bool,
+) {
+    let m = store.providers.entry(key.to_string()).or_default();
+    m.calls += 1;
+    m.last_total_ms = total_ms;
+    m.total_sum_ms += total_ms;
+    m.avg_total_ms = m.total_sum_ms / m.calls;
+    if let Some(t) = ttft_ms {
+        m.last_ttft_ms = Some(t);
+        m.ttft_samples += 1;
+        m.ttft_sum_ms += t;
+        m.avg_ttft_ms = Some(m.ttft_sum_ms / m.ttft_samples);
+    }
+    if cancelled {
+        m.cancelled += 1;
+    } else if let Some(msg) = err_msg {
+        m.errors += 1;
+        if is_rate_limit_text(msg) {
+            m.rate_limits += 1;
         }
     }
-
-    if !missing.is_empty() {
-        let translated = match translate::translate_lines(&missing, &tl).await {
-            Ok(v) => v,
-            Err(e) => return api_error(StatusCode::BAD_GATEWAY, e.to_string()),
-        };
-        let conn = state.db_lock();
-        for (src, dst) in missing.into_iter().zip(translated.into_iter()) {
-            let key = format!("{tl}|{}", short_hash(&src, 24));
-            let _ = db::tr_put(&conn, &key, &dst);
-            cached.insert(src, dst);
-        }
+    if store.recent.len() >= MAX_RECENT_TRACES {
+        store.recent.pop_front();
     }
+    store.recent.push_back(RecentLlmTrace {
+        at_ms: now_unix_ms(),
+        provider: key.to_string(),
+        priority: priority.to_string(),
+        ttft_ms,
+        total_ms,
+        ok: !cancelled && err_msg.is_none(),
+        cancelled,
+        error: err_msg.map(|s| s.chars().take(160).collect()),
+    });
+}
 
-    let items: Vec<String> = body
-        .lines
-        .iter()
-        .map(|l| {
-            let trimmed = l.trim();
-            if trimmed.is_empty() {
-                String::new()
-            } else {
-                cached.get(trimmed).cloned().unwrap_or_default()
-            }
-        })
-        .collect();
-    Json(json!({ "items": items })).into_response()
+pub async fn llm_metrics() -> Response {
+    let snapshot = AI_METRICS.lock().unwrap_or_else(|e| e.into_inner());
+    Json(json!({ "providers": &snapshot.providers, "recent": &snapshot.recent })).into_response()
 }
 
 pub async fn detect_agents() -> Response {
@@ -159,6 +199,25 @@ fn format_cli_prompt(messages: &[llm::Message]) -> String {
     format!("历史对话：\n{}\n\n当前问题：\n{}", history.join("\n\n"), messages[last_idx].content)
 }
 
+struct CancelOnDropStream<S> {
+    inner: S,
+    cancel: Arc<AtomicBool>,
+}
+
+impl<S: Stream + Unpin> Stream for CancelOnDropStream<S> {
+    type Item = S::Item;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        Pin::new(&mut self.inner).poll_next(cx)
+    }
+}
+
+impl<S> Drop for CancelOnDropStream<S> {
+    fn drop(&mut self) {
+        self.cancel.store(true, Ordering::Relaxed);
+    }
+}
+
 pub async fn llm_chat(
     State(state): State<Arc<AppState>>,
     Json(body): Json<LlmChatBody>,
@@ -168,9 +227,33 @@ pub async fn llm_chat(
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<Result<Event, Infallible>>();
 
     let state_clone = state.clone();
+    let cancel_worker = cancel.clone();
+
     tokio::spawn(async move {
+        let cancel = cancel_worker;
+        let started = Instant::now();
+        let first_delta_ms = Arc::new(AtomicU64::new(u64::MAX));
+        let last_think_ms = Arc::new(AtomicU64::new(0));
+        let metric_key = format!("{}:{}", body.provider.protocol, body.provider.id);
         let send_json = |v: Value| {
             let _ = tx.send(Ok(Event::default().data(v.to_string())));
+        };
+        let emit_thinking = {
+            let tx_t = tx.clone();
+            let fd = first_delta_ms.clone();
+            let lt = last_think_ms.clone();
+            move || {
+                if fd.load(Ordering::Relaxed) != u64::MAX {
+                    return;
+                }
+                let now = started.elapsed().as_millis() as u64;
+                let prev = lt.load(Ordering::Relaxed);
+                if prev == 0 || now.saturating_sub(prev) >= 800 {
+                    if lt.compare_exchange(prev, now.max(1), Ordering::Relaxed, Ordering::Relaxed).is_ok() {
+                        let _ = tx_t.send(Ok(Event::default().data(json!({ "type": "thinking" }).to_string())));
+                    }
+                }
+            }
         };
 
         let result: anyhow::Result<String> = if body.provider.protocol == "cli" {
@@ -191,14 +274,36 @@ pub async fn llm_chat(
                 user: &user_prompt,
                 model,
                 json: body.json_mode.unwrap_or(false),
+                priority: if body.quick.unwrap_or(false) {
+                    agents::Priority::Background
+                } else {
+                    agents::Priority::Interactive
+                },
             };
             let tx_delta = tx.clone();
-            agents::complete(kind, &path, req, cancel.clone(), move |delta| {
-                let _ = tx_delta.send(Ok(Event::default().data(json!({ "type": "delta", "text": delta }).to_string())));
-            })
+            let fd = first_delta_ms.clone();
+            agents::complete(
+                kind,
+                &path,
+                req,
+                cancel.clone(),
+                move |delta| {
+                    if !delta.is_empty() {
+                        let _ = fd.compare_exchange(
+                            u64::MAX,
+                            started.elapsed().as_millis() as u64,
+                            Ordering::Relaxed,
+                            Ordering::Relaxed,
+                        );
+                    }
+                    let _ = tx_delta.send(Ok(Event::default().data(json!({ "type": "delta", "text": delta }).to_string())));
+                },
+                emit_thinking,
+            )
             .await
         } else {
             let tx_delta = tx.clone();
+            let fd = first_delta_ms.clone();
             llm::chat(
                 &body.provider,
                 &body.system,
@@ -208,25 +313,67 @@ pub async fn llm_chat(
                 body.quick.unwrap_or(false),
                 &cancel,
                 move |delta| {
+                    if !delta.is_empty() {
+                        let _ = fd.compare_exchange(
+                            u64::MAX,
+                            started.elapsed().as_millis() as u64,
+                            Ordering::Relaxed,
+                            Ordering::Relaxed,
+                        );
+                    }
                     let _ = tx_delta.send(Ok(Event::default().data(json!({ "type": "delta", "text": delta }).to_string())));
                 },
+                emit_thinking,
             )
             .await
         };
 
+        let total_ms = started.elapsed().as_millis() as u64;
+        let raw_ttft = first_delta_ms.load(Ordering::Relaxed);
+        let ttft_ms = (raw_ttft != u64::MAX).then_some(raw_ttft);
+        let cancelled = cancel.load(Ordering::Relaxed);
+        let priority_label = if body.quick.unwrap_or(false) { "background" } else { "interactive" };
+        {
+            let err_str = result.as_ref().err().map(|e| e.to_string());
+            let mut m = AI_METRICS.lock().unwrap_or_else(|e| e.into_inner());
+            apply_metric(&mut m, &metric_key, priority_label, ttft_ms, total_ms, err_str.as_deref(), cancelled);
+        }
+
         match result {
-            Ok(full) => send_json(json!({ "type": "done", "text": full })),
-            Err(err) => send_json(json!({ "type": "error", "message": err.to_string() })),
+            Ok(full) => send_json(json!({ "type": "done", "text": full, "ttftMs": ttft_ms, "totalMs": total_ms })),
+            Err(err) => send_json(json!({ "type": "error", "message": err.to_string(), "ttftMs": ttft_ms, "totalMs": total_ms })),
         }
         state_clone.finish_job(&request_id, &cancel);
     });
 
-    Sse::new(UnboundedReceiverStream::new(rx)).keep_alive(KeepAlive::default())
+    Sse::new(CancelOnDropStream {
+        inner: UnboundedReceiverStream::new(rx),
+        cancel,
+    })
+    .keep_alive(KeepAlive::default())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures_util::StreamExt;
+
+    #[tokio::test]
+    async fn sse_stream_closes_on_sender_drop_and_cancels_on_client_drop() {
+        let cancel = Arc::new(AtomicBool::new(false));
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<Result<Event, Infallible>>();
+        let mut stream = CancelOnDropStream {
+            inner: UnboundedReceiverStream::new(rx),
+            cancel: cancel.clone(),
+        };
+        let _ = tx.send(Ok(Event::default().data("{}")));
+        drop(tx);
+        assert!(stream.next().await.is_some());
+        assert!(stream.next().await.is_none());
+        assert!(!cancel.load(Ordering::Relaxed));
+        drop(stream);
+        assert!(cancel.load(Ordering::Relaxed));
+    }
 
     #[test]
     fn formats_cli_multi_turn_context() {
@@ -239,5 +386,24 @@ mod tests {
         ];
         let prompt = format_cli_prompt(&many);
         assert!(prompt.contains("用户：q1") && prompt.contains("助手：a1") && prompt.ends_with("当前问题：\nq2"));
+    }
+
+    #[test]
+    fn aggregates_provider_metrics_and_rate_limits() {
+        let mut store = MetricsStore::default();
+        apply_metric(&mut store, "cli:codex", "interactive", Some(320), 1400, None, false);
+        apply_metric(&mut store, "cli:codex", "background", None, 2000, Some("429 quota exceeded"), false);
+        apply_metric(&mut store, "cli:codex", "interactive", None, 500, Some("已取消"), true);
+        let m = store.providers.get("cli:codex").unwrap();
+        assert_eq!(m.calls, 3);
+        assert_eq!(m.errors, 1);
+        assert_eq!(m.rate_limits, 1);
+        assert_eq!(m.cancelled, 1);
+        assert_eq!(m.avg_ttft_ms, Some(320));
+        assert_eq!(m.avg_total_ms, 1300);
+        assert_eq!(store.recent.len(), 3);
+        assert!(store.recent[0].ok);
+        assert!(!store.recent[1].ok);
+        assert!(store.recent[2].cancelled);
     }
 }

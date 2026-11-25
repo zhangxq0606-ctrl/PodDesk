@@ -23,7 +23,47 @@ import { HistoryMenu } from "./HistoryMenu";
 import { ModelPicker } from "./ModelPicker";
 import { PromptMenu } from "./PromptMenu";
 
-const PresenceBar = memo(function PresenceBar({ epId, fallbackSec }: { epId: string; fallbackSec: number }) {
+export function ThinkingHint({
+  thinking,
+  startedAt,
+  idleText,
+}: {
+  thinking?: boolean;
+  startedAt?: number;
+  idleText: string;
+}) {
+  const [secs, setSecs] = useState(() => (startedAt ? Math.max(0, Math.floor((Date.now() - startedAt) / 1000)) : 0));
+
+  useEffect(() => {
+    if (!startedAt) {
+      setSecs(0);
+      return;
+    }
+    setSecs(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
+    const timer = window.setInterval(() => {
+      setSecs(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [startedAt]);
+
+  if (thinking) {
+    return <span className="thinking-shine">{secs >= 2 ? `正在深度思考（已 ${secs} 秒）…` : "正在深度思考…"}</span>;
+  }
+  const cleanIdle = idleText.replace(/…$/, "");
+  return <span className="thinking-shine">{secs >= 4 ? `${cleanIdle}（已 ${secs} 秒）…` : idleText}</span>;
+}
+
+const PresenceBar = memo(function PresenceBar({
+  epId,
+  fallbackSec,
+  enabled,
+  onToggle,
+}: {
+  epId: string;
+  fallbackSec: number;
+  enabled: boolean;
+  onToggle: () => void;
+}) {
   const { posSec, isPlaying } = useStore(
     useShallow((s) => ({
       posSec: s.current?.id === epId ? Math.floor(s.time) : Math.floor(fallbackSec),
@@ -32,10 +72,18 @@ const PresenceBar = memo(function PresenceBar({ epId, fallbackSec }: { epId: str
   );
   if (posSec <= 3) return null;
   return (
-    <div className={`presence-bar ${isPlaying ? "is-live" : ""}`}>
+    <button
+      type="button"
+      className={`presence-bar ${enabled ? (isPlaying ? "is-live" : "") : "is-paused"}`}
+      title={enabled ? "点击本次暂停跟随播放位置（适合聊整期话题）" : "点击恢复感知当前播放位置"}
+      aria-pressed={enabled}
+      onClick={onToggle}
+    >
       <Clock size={12} />
-      <span>当前播放位置 [{clock(posSec)}] · AI 已感知上下文</span>
-    </div>
+      <span>
+        {enabled ? `当前播放位置 [${clock(posSec)}] · AI 已感知上下文` : `已暂停跟随 [${clock(posSec)}] · 点击恢复`}
+      </span>
+    </button>
   );
 });
 
@@ -70,6 +118,7 @@ export function ChatPanel({ ep }: { ep: Episode }) {
   const [input, setInput] = useState("");
   const [atBottom, setAtBottom] = useState(true);
   const [prefsOpen, setPrefsOpen] = useState(false);
+  const [followPlayback, setFollowPlayback] = useState(true);
   const [copiedUserIdx, setCopiedUserIdx] = useState<number | null>(null);
   const copyTimerRef = useRef<number | undefined>(undefined);
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -80,6 +129,7 @@ export function ChatPanel({ ep }: { ep: Episode }) {
 
   useEffect(() => {
     setCopiedUserIdx(null);
+    setFollowPlayback(true);
     void loadEpisodeChat(ep.id);
   }, [ep.id]);
 
@@ -120,12 +170,15 @@ export function ChatPanel({ ep }: { ep: Episode }) {
     setAtBottom(true);
   };
 
-  const send = (text: string) => {
+  const send = (text: string, opts?: { skipPresence?: boolean }) => {
     const q = text.trim();
     if (!q || isBusy) return;
     setInput("");
     setAtBottom(true);
-    void sendChatAsk(ep, [...messages, { role: "user", content: q }]);
+    void sendChatAsk(ep, [...messages, { role: "user", content: q }], {
+      followPlayback,
+      skipPresence: opts?.skipPresence,
+    });
   };
 
   const pairStart = (i: number) =>
@@ -225,7 +278,7 @@ export function ChatPanel({ ep }: { ep: Episode }) {
                   disabled={blocked || isBusy}
                   onClick={() => {
                     countPromptUse(p.id);
-                    send(p.body);
+                    send(p.body, { skipPresence: true });
                   }}
                 >
                   <span>{p.title}</span>
@@ -295,7 +348,11 @@ export function ChatPanel({ ep }: { ep: Episode }) {
                 <Markdown text={streaming} onSeek={onSeek} />
               ) : (
                 <p className="muted row-tight">
-                  <span className="thinking-shine">正在阅读文字稿并组织回答…</span>
+                  <ThinkingHint
+                    thinking={chatJob?.thinking}
+                    startedAt={chatJob?.startedAt}
+                    idleText="正在阅读文字稿并组织回答…"
+                  />
                 </p>
               )}
             </div>
@@ -320,7 +377,14 @@ export function ChatPanel({ ep }: { ep: Episode }) {
         </button>
       )}
 
-      {transcript && <PresenceBar epId={ep.id} fallbackSec={ep.progress} />}
+      {transcript && (
+        <PresenceBar
+          epId={ep.id}
+          fallbackSec={ep.progress}
+          enabled={followPlayback}
+          onToggle={() => setFollowPlayback((v) => !v)}
+        />
+      )}
 
       <form
         className="composer"
@@ -358,7 +422,7 @@ export function ChatPanel({ ep }: { ep: Episode }) {
             disabled={blocked || isBusy}
             onPick={(id, body) => {
               countPromptUse(id);
-              send(body);
+              send(body, { skipPresence: true });
             }}
           />
           <button

@@ -9,7 +9,6 @@ pub mod model;
 pub mod net;
 pub mod routes;
 pub mod transcript;
-pub mod translate;
 pub mod update;
 pub mod youtube;
 

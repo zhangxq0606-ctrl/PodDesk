@@ -2,7 +2,7 @@
 //!
 //! - Claude Code: `claude -p --input-format stream-json --output-format stream-json`
 //! - Codex: `codex app-server` (JSON-RPC)
-//! - Qwen Code, Kimi Code, OpenCode, Antigravity: Agent Client Protocol (ACP) over stdio.
+//! - Kimi Code, OpenCode, Antigravity: Agent Client Protocol (ACP) over stdio.
 //!
 //! Every agent runs in an empty temporary folder with its tools off: text answers only.
 use anyhow::{anyhow, Context, Result};
@@ -16,7 +16,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, Command};
-use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::sync::{mpsc, oneshot, Mutex, Notify};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -24,17 +24,15 @@ pub enum Kind {
     Claude,
     Codex,
     Antigravity,
-    Qwen,
     Kimi,
     Opencode,
 }
 
 impl Kind {
-    pub const ALL: [Kind; 6] = [
+    pub const ALL: [Kind; 5] = [
         Kind::Claude,
         Kind::Codex,
         Kind::Antigravity,
-        Kind::Qwen,
         Kind::Kimi,
         Kind::Opencode,
     ];
@@ -46,7 +44,6 @@ impl Kind {
             Kind::Claude => "claude",
             Kind::Codex => "codex",
             Kind::Antigravity => "antigravity",
-            Kind::Qwen => "qwen",
             Kind::Kimi => "kimi",
             Kind::Opencode => "opencode",
         }
@@ -138,7 +135,22 @@ pub fn path_of(kind: Kind) -> Option<PathBuf> {
     find(kind)
 }
 
-fn command(path: &Path) -> Command {
+fn apply_isolation_env(c: &mut Command, kind: Kind) {
+    match kind {
+        Kind::Antigravity => {
+            // Skip ~230 MB background CLI auto-update inside PodDesk child sessions; terminal `agy` updates normally.
+            c.env("AGY_CLI_DISABLE_AUTO_UPDATE", "1");
+        }
+        Kind::Opencode => {
+            // Strip tool permissions at runtime while keeping user-defined providers/relays and auth intact.
+            c.env("OPENCODE_CONFIG_CONTENT", r#"{"permission":{"*":"deny"}}"#)
+                .env("OPENCODE_DISABLE_CLAUDE_CODE", "1");
+        }
+        _ => {}
+    }
+}
+
+fn command(kind: Option<Kind>, path: &Path) -> Command {
     let is_script = cfg!(windows) && path.extension().is_some_and(|e| e.eq_ignore_ascii_case("cmd") || e.eq_ignore_ascii_case("bat"));
     let mut c = if is_script {
         let mut c = Command::new("cmd");
@@ -156,11 +168,14 @@ fn command(path: &Path) -> Command {
     if !proxy.is_empty() {
         c.env("HTTPS_PROXY", &proxy).env("HTTP_PROXY", &proxy);
     }
+    if let Some(k) = kind {
+        apply_isolation_env(&mut c, k);
+    }
     c
 }
 
-async fn output(path: &Path, args: &[&str], secs: u64) -> Option<String> {
-    let mut c = command(path);
+async fn output(kind: Option<Kind>, path: &Path, args: &[&str], secs: u64) -> Option<String> {
+    let mut c = command(kind, path);
     c.args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -179,7 +194,7 @@ fn work_dir() -> Result<PathBuf> {
 async fn login(kind: Kind, path: &Path) -> &'static str {
     let h = home();
     match kind {
-        Kind::Claude => match output(path, &["auth", "status", "--json"], 10).await {
+        Kind::Claude => match output(Some(kind), path, &["auth", "status", "--json"], 10).await {
             Some(s) => match serde_json::from_str::<Value>(s.trim())
                 .ok()
                 .or_else(|| s.find('{').and_then(|i| serde_json::from_str(&s[i..]).ok()))
@@ -211,13 +226,13 @@ async fn login(kind: Kind, path: &Path) -> &'static str {
         Kind::Kimi => {
             if h.join(".kimi/credentials").exists() { "ready" } else { "unknown" }
         }
-        Kind::Qwen | Kind::Opencode => "unknown",
+        Kind::Opencode => "unknown",
     }
 }
 
 pub async fn detect() -> Vec<Found> {
     let jobs = Kind::ALL.into_iter().filter_map(|k| find(k).map(|p| (k, p))).map(|(kind, path)| async move {
-        let version = output(&path, &["--version"], 8)
+        let version = output(Some(kind), &path, &["--version"], 8)
             .await
             .unwrap_or_default()
             .lines()
@@ -249,7 +264,7 @@ pub async fn probe(kind: Kind, path: &Path) -> Result<&'static str> {
 
 async fn probe_acp(kind: Kind, path: &Path) -> Result<&'static str> {
     let conn = Acp::start(kind, path).await?;
-    let r = conn.new_session().await;
+    let r = conn.session().await;
     conn.close().await;
     match r {
         Ok(_) => Ok("ready"),
@@ -280,7 +295,7 @@ pub async fn models(kind: Kind, path: &Path) -> Result<Vec<AgentModel>> {
             Ok(parse_codex_models(&r?))
         }
         _ => {
-            let conn = Acp::start(kind, path).await?;
+            let conn = Acp::start_raw(kind, path).await?;
             let r = conn.rpc.request("session/new", json!({ "cwd": work_dir()?.to_string_lossy(), "mcpServers": [] }), 60).await;
             conn.close().await;
             Ok(parse_acp_models(&r?))
@@ -327,11 +342,18 @@ fn parse_acp_models(v: &Value) -> Vec<AgentModel> {
 
 // ---- requests --------------------------------------------------------------------------------------------
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Priority {
+    Interactive,
+    Background,
+}
+
 pub struct Request<'a> {
     pub system: &'a str,
     pub user: &'a str,
     pub model: Option<&'a str>,
     pub json: bool,
+    pub priority: Priority,
 }
 
 pub async fn complete(
@@ -340,15 +362,16 @@ pub async fn complete(
     mut req: Request<'_>,
     cancel: Arc<AtomicBool>,
     on_delta: impl Fn(&str) + Send,
+    on_thinking: impl Fn() + Send,
 ) -> Result<String> {
     let reminded;
     if req.json {
         reminded = format!("{}\n\n(Answer with the JSON only, no Markdown fences, no other text.)", req.user);
         req.user = &reminded;
     }
-    let conn = POOL.take(kind, path, req.system, req.model).await?;
-    let result = conn.ask(&req, cancel, &on_delta).await;
-    POOL.give_back(conn, result.is_ok()).await;
+    let (conn, guard) = POOL.take(kind, path, req.system, req.model, req.priority, &cancel).await?;
+    let result = conn.ask(&req, cancel.clone(), &on_delta, &on_thinking).await;
+    POOL.give_back(conn, guard, result.is_ok()).await;
     match result {
         Ok(text) if text.trim().is_empty() => Err(anyhow!("{} 没有给出回答（可能只输出了思考过程，或被中途打断），请重试或换一个模型", display(kind))),
         Ok(text) => Ok(text),
@@ -378,7 +401,6 @@ pub fn display(kind: Kind) -> &'static str {
         Kind::Claude => "Claude Code",
         Kind::Codex => "Codex",
         Kind::Antigravity => "Antigravity CLI",
-        Kind::Qwen => "Qwen Code",
         Kind::Kimi => "Kimi Code",
         Kind::Opencode => "OpenCode",
     }
@@ -387,7 +409,7 @@ pub fn display(kind: Kind) -> &'static str {
 // ---- the pool of warm processes ----------------------------------------------------------------------------
 
 const IDLE: Duration = Duration::from_secs(240);
-const CLAUDE_TURNS: u32 = 6;
+const BUSY_WAIT: Duration = Duration::from_secs(90);
 
 enum Conn {
     Claude(ClaudeConn),
@@ -397,15 +419,55 @@ enum Conn {
 
 struct Pooled {
     kind: Kind,
-    key: String,
     conn: Conn,
     idle_since: Instant,
-    turns: u32,
+}
+
+#[derive(Default)]
+struct PoolState {
+    idle: Vec<Pooled>,
+    busy: HashMap<Kind, usize>,
+    waiting_interactive: HashMap<Kind, usize>,
 }
 
 struct Pool {
-    idle: Mutex<Vec<Pooled>>,
-    busy: Mutex<HashMap<Kind, usize>>,
+    state: std::sync::Mutex<PoolState>,
+    notify: Notify,
+}
+
+struct BusyGuard<'a> {
+    pool: &'a Pool,
+    kind: Kind,
+    active: bool,
+}
+
+impl BusyGuard<'_> {
+    fn disarm(mut self) {
+        self.active = false;
+    }
+}
+
+impl Drop for BusyGuard<'_> {
+    fn drop(&mut self) {
+        if self.active {
+            self.pool.release(self.kind);
+        }
+    }
+}
+
+struct WaitGuard<'a> {
+    pool: &'a Pool,
+    kind: Kind,
+}
+
+impl Drop for WaitGuard<'_> {
+    fn drop(&mut self) {
+        let mut st = self.pool.state.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(n) = st.waiting_interactive.get_mut(&self.kind) {
+            *n = n.saturating_sub(1);
+        }
+        self.pool.notify.notify_waiters();
+    }
 }
 
 static POOL: once_cell::sync::Lazy<Pool> = once_cell::sync::Lazy::new(|| {
@@ -413,9 +475,9 @@ static POOL: once_cell::sync::Lazy<Pool> = once_cell::sync::Lazy::new(|| {
         loop {
             tokio::time::sleep(Duration::from_secs(30)).await;
             let stale: Vec<Pooled> = {
-                let mut v = POOL.idle.lock().await;
-                let (old, keep) = v.drain(..).partition(|p| p.idle_since.elapsed() > IDLE);
-                *v = keep;
+                let mut st = POOL.state.lock().unwrap_or_else(|e| e.into_inner());
+                let (old, keep) = st.idle.drain(..).partition(|p| p.idle_since.elapsed() > IDLE);
+                st.idle = keep;
                 old
             };
             for p in stale {
@@ -423,81 +485,155 @@ static POOL: once_cell::sync::Lazy<Pool> = once_cell::sync::Lazy::new(|| {
             }
         }
     });
-    Pool { idle: Mutex::new(Vec::new()), busy: Mutex::new(HashMap::new()) }
+    Pool::new()
 });
 
+async fn cancellable<T, F>(cancel: &AtomicBool, fut: F) -> Result<T>
+where
+    F: std::future::Future<Output = Result<T>>,
+{
+    tokio::pin!(fut);
+    let mut tick = tokio::time::interval(Duration::from_millis(50));
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+        if cancel.load(Ordering::Relaxed) {
+            return Err(anyhow!("已取消"));
+        }
+        tokio::select! {
+            res = &mut fut => return res,
+            _ = tick.tick() => {}
+        }
+    }
+}
+
 impl Pool {
-    async fn take(&self, kind: Kind, path: &Path, system: &str, model: Option<&str>) -> Result<Pooled> {
-        let key = if kind == Kind::Claude {
-            format!("{}|{}", model.unwrap_or(""), crate::model::short_hash(system, 16))
+    fn new() -> Self {
+        Self { state: std::sync::Mutex::new(PoolState::default()), notify: Notify::new() }
+    }
+
+    fn try_acquire(&self, kind: Kind, priority: Priority) -> Option<(Option<Pooled>, BusyGuard<'_>)> {
+        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let bg_cap = kind.max_parallel();
+        let fg_cap = bg_cap + 1;
+        let busy = *st.busy.get(&kind).unwrap_or(&0);
+        let fg_waiting = *st.waiting_interactive.get(&kind).unwrap_or(&0);
+        let allowed = match priority {
+            Priority::Interactive => busy < fg_cap,
+            Priority::Background => busy < bg_cap && fg_waiting == 0,
+        };
+        if !allowed {
+            return None;
+        }
+        *st.busy.entry(kind).or_default() += 1;
+        let reused = if kind == Kind::Claude {
+            None
         } else {
-            String::new()
+            st.idle.iter().position(|p| p.kind == kind).map(|i| st.idle.remove(i))
         };
+        Some((reused, BusyGuard { pool: self, kind, active: true }))
+    }
+
+    async fn acquire_slot(&self, kind: Kind, priority: Priority, cancel: &AtomicBool) -> Result<(Option<Pooled>, BusyGuard<'_>)> {
+        if let Some(hit) = self.try_acquire(kind, priority) {
+            return Ok(hit);
+        }
+        let _wait_guard = if priority == Priority::Interactive {
+            let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            *st.waiting_interactive.entry(kind).or_default() += 1;
+            Some(WaitGuard { pool: self, kind })
+        } else {
+            None
+        };
+        let waiting = Instant::now();
         loop {
-            {
-                let mut idle = self.idle.lock().await;
-                if let Some(i) = idle.iter().position(|p| p.kind == kind && p.key == key) {
-                    let p = idle.remove(i);
-                    *self.busy.lock().await.entry(kind).or_default() += 1;
-                    return Ok(p);
-                }
-                let busy = *self.busy.lock().await.get(&kind).unwrap_or(&0);
-                if busy < kind.max_parallel() {
-                    if let Some(i) = idle.iter().position(|p| p.kind == kind) {
-                        let old = idle.remove(i);
-                        drop(idle);
-                        old.conn.close().await;
-                    }
-                    *self.busy.lock().await.entry(kind).or_default() += 1;
-                    break;
-                }
+            if cancel.load(Ordering::Relaxed) {
+                return Err(anyhow!("已取消"));
             }
-            tokio::time::sleep(Duration::from_millis(150)).await;
-        }
-        let conn = match kind {
-            Kind::Claude => ClaudeConn::start(path, system, model).await.map(Conn::Claude),
-            Kind::Codex => Codex::start(path).await.map(Conn::Codex),
-            _ => Acp::start(kind, path).await.map(Conn::Acp),
-        };
-        match conn {
-            Ok(conn) => Ok(Pooled { kind, key, conn, idle_since: Instant::now(), turns: 0 }),
-            Err(e) => {
-                self.release(kind).await;
-                Err(e)
+            if waiting.elapsed() > BUSY_WAIT {
+                return Err(anyhow!("{} 正忙（可能在并发翻译或排队），请稍后再试", display(kind)));
             }
+            if let Some(hit) = self.try_acquire(kind, priority) {
+                return Ok(hit);
+            }
+            let _ = tokio::time::timeout(Duration::from_millis(100), self.notify.notified()).await;
         }
     }
 
-    async fn release(&self, kind: Kind) {
-        if let Some(n) = self.busy.lock().await.get_mut(&kind) {
-            *n = n.saturating_sub(1);
+    async fn take(
+        &self,
+        kind: Kind,
+        path: &Path,
+        system: &str,
+        model: Option<&str>,
+        priority: Priority,
+        cancel: &AtomicBool,
+    ) -> Result<(Pooled, BusyGuard<'_>)> {
+        let (reused, guard) = self.acquire_slot(kind, priority, cancel).await?;
+        if let Some(p) = reused {
+            if p.conn.alive() {
+                return Ok((p, guard));
+            }
+            p.conn.close().await;
         }
+        let conn = cancellable(cancel, async {
+            match kind {
+                Kind::Claude => ClaudeConn::start(path, system, model).await.map(Conn::Claude),
+                Kind::Codex => Codex::start(path).await.map(Conn::Codex),
+                _ => Acp::start(kind, path).await.map(Conn::Acp),
+            }
+        })
+        .await?;
+        Ok((Pooled { kind, conn, idle_since: Instant::now() }, guard))
     }
 
-    async fn give_back(&self, mut p: Pooled, ok: bool) {
-        self.release(p.kind).await;
-        p.turns += 1;
-        if !ok || !p.conn.alive() || (p.kind == Kind::Claude && p.turns >= CLAUDE_TURNS) {
+    fn release(&self, kind: Kind) {
+        {
+            let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(n) = st.busy.get_mut(&kind) {
+                *n = n.saturating_sub(1);
+            }
+        }
+        self.notify.notify_waiters();
+    }
+
+    async fn give_back(&self, mut p: Pooled, guard: BusyGuard<'_>, ok: bool) {
+        guard.disarm();
+        self.release(p.kind);
+        // ClaudeConn keeps conversation memory across turns on the same process, so never reuse it across calls.
+        if p.kind == Kind::Claude || !ok || !p.conn.alive() {
             p.conn.close().await;
             return;
         }
         p.idle_since = Instant::now();
-        let mut idle = self.idle.lock().await;
-        idle.push(p);
-        while idle.iter().filter(|x| x.kind == idle.last().unwrap().kind).count() > 2 {
-            let i = idle.iter().position(|x| x.kind == idle.last().unwrap().kind).unwrap();
-            let old = idle.remove(i);
-            old.conn.close_now();
+        let mut evicted = Vec::new();
+        {
+            let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            let kind = p.kind;
+            st.idle.push(p);
+            while st.idle.iter().filter(|x| x.kind == kind).count() > 2 {
+                if let Some(i) = st.idle.iter().position(|x| x.kind == kind) {
+                    evicted.push(st.idle.remove(i));
+                }
+            }
+        }
+        for old in evicted {
+            old.conn.close().await;
         }
     }
 }
 
 impl Pooled {
-    async fn ask(&self, req: &Request<'_>, cancel: Arc<AtomicBool>, on_delta: &(impl Fn(&str) + Send)) -> Result<String> {
+    async fn ask(
+        &self,
+        req: &Request<'_>,
+        cancel: Arc<AtomicBool>,
+        on_delta: &(impl Fn(&str) + Send),
+        on_thinking: &(impl Fn() + Send),
+    ) -> Result<String> {
         match &self.conn {
-            Conn::Claude(c) => c.ask(req, cancel, on_delta).await,
-            Conn::Codex(c) => c.ask(req, cancel, on_delta).await,
-            Conn::Acp(c) => c.ask(req, cancel, on_delta).await,
+            Conn::Claude(c) => c.ask(req, cancel, on_delta, on_thinking).await,
+            Conn::Codex(c) => c.ask(req, cancel, on_delta, on_thinking).await,
+            Conn::Acp(c) => c.ask(req, cancel, on_delta, on_thinking).await,
         }
     }
 }
@@ -517,17 +653,15 @@ impl Conn {
             Conn::Acp(c) => c.close().await,
         }
     }
-    fn close_now(self) {
-        tokio::spawn(self.close());
-    }
 }
 
 pub async fn warm(kind: Kind, path: &Path) {
     if kind == Kind::Claude {
         return;
     }
-    if let Ok(p) = POOL.take(kind, path, "", None).await {
-        POOL.give_back(p, true).await;
+    let cancel = AtomicBool::new(false);
+    if let Ok((p, guard)) = POOL.take(kind, path, "", None, Priority::Background, &cancel).await {
+        POOL.give_back(p, guard, true).await;
     }
 }
 
@@ -544,8 +678,8 @@ struct Rpc {
 }
 
 impl Rpc {
-    async fn spawn(path: &Path, args: &[&str]) -> Result<Rpc> {
-        let mut c = command(path);
+    async fn spawn(kind: Option<Kind>, path: &Path, args: &[&str]) -> Result<Rpc> {
+        let mut c = command(kind, path);
         c.args(args)
             .current_dir(work_dir()?)
             .stdin(Stdio::piped())
@@ -667,20 +801,50 @@ impl Rpc {
 
     async fn close(&self) {
         if let Some(mut c) = self.child.lock().await.take() {
+            #[cfg(windows)]
+            if let Some(pid) = c.id() {
+                // `.cmd` shims (`opencode.cmd`, `codex.cmd`) spawn grandchildren that `start_kill` alone orphans.
+                let mut tk = Command::new("taskkill");
+                tk.args(["/PID", &pid.to_string(), "/T", "/F"])
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .creation_flags(0x08000000);
+                let _ = tokio::time::timeout(Duration::from_secs(2), tk.status()).await;
+            }
             let _ = c.start_kill();
             let _ = tokio::time::timeout(Duration::from_secs(3), c.wait()).await;
         }
     }
 }
 
-async fn next_event(rpc: &Rpc, cancel: &AtomicBool, started: Instant) -> Result<Value> {
+fn check_timeouts(started: Instant, last_activity: Instant, priority: Priority) -> Result<()> {
+    let idle_limit = match priority {
+        Priority::Background => Duration::from_secs(60),
+        Priority::Interactive => Duration::from_secs(120),
+    };
+    const MAX_WALL: Duration = Duration::from_secs(420);
+    if last_activity.elapsed() > idle_limit {
+        return Err(anyhow!("本机 AI 超过 {} 秒没有任何响应，请重试或切换模型", idle_limit.as_secs()));
+    }
+    if started.elapsed() > MAX_WALL {
+        return Err(anyhow!("本机 AI 超过 {} 分钟没有答完", MAX_WALL.as_secs() / 60));
+    }
+    Ok(())
+}
+
+async fn next_event(
+    rpc: &Rpc,
+    cancel: &AtomicBool,
+    started: Instant,
+    last_activity: Instant,
+    priority: Priority,
+) -> Result<Value> {
     loop {
         if cancel.load(Ordering::Relaxed) {
             return Err(anyhow!("已取消"));
         }
-        if started.elapsed() > Duration::from_secs(300) {
-            return Err(anyhow!("本机 AI 超过 5 分钟没有答完"));
-        }
+        check_timeouts(started, last_activity, priority)?;
         match rpc.event(1).await {
             Ok(v) => return Ok(v),
             Err(e) if e.to_string().contains("长时间没有回应") => continue,
@@ -715,18 +879,28 @@ impl ClaudeConn {
         if let Some(m) = model.filter(|m| !m.is_empty()) {
             args.extend(["--model", m]);
         }
-        Ok(ClaudeConn { rpc: Rpc::spawn(path, &args).await? })
+        Ok(ClaudeConn { rpc: Rpc::spawn(Some(Kind::Claude), path, &args).await? })
     }
 
-    async fn ask(&self, req: &Request<'_>, cancel: Arc<AtomicBool>, on_delta: &(impl Fn(&str) + Send)) -> Result<String> {
+    async fn ask(
+        &self,
+        req: &Request<'_>,
+        cancel: Arc<AtomicBool>,
+        on_delta: &(impl Fn(&str) + Send),
+        on_thinking: &(impl Fn() + Send),
+    ) -> Result<String> {
         self.rpc
             .send(&json!({ "type": "user", "message": { "role": "user", "content": req.user } }))
             .await?;
         let started = Instant::now();
+        let mut last_activity = started;
         let mut text = String::new();
         loop {
-            let v = match next_event(&self.rpc, &cancel, started).await {
-                Ok(v) => v,
+            let v = match next_event(&self.rpc, &cancel, started, last_activity, req.priority).await {
+                Ok(v) => {
+                    last_activity = Instant::now();
+                    v
+                }
                 Err(e) => {
                     if cancel.load(Ordering::Relaxed) {
                         self.rpc.close().await;
@@ -737,7 +911,11 @@ impl ClaudeConn {
             match v["type"].as_str() {
                 Some("stream_event") => {
                     let ev = &v["event"];
-                    if ev["type"] == "content_block_delta" && ev["delta"]["type"] == "text_delta" {
+                    if (ev["type"] == "content_block_start" && ev["content_block"]["type"] == "thinking")
+                        || (ev["type"] == "content_block_delta" && ev["delta"]["type"] == "thinking_delta")
+                    {
+                        on_thinking();
+                    } else if ev["type"] == "content_block_delta" && ev["delta"]["type"] == "text_delta" {
                         if let Some(d) = ev["delta"]["text"].as_str() {
                             text.push_str(d);
                             on_delta(d);
@@ -768,7 +946,20 @@ struct Codex {
 
 impl Codex {
     async fn start(path: &Path) -> Result<Codex> {
-        let rpc = Rpc::spawn(path, &["app-server"]).await?;
+        let rpc = Rpc::spawn(
+            Some(Kind::Codex),
+            path,
+            &[
+                "app-server",
+                "--disable",
+                "hooks",
+                "-c",
+                "mcp_servers={}",
+                "-c",
+                "project_doc_max_bytes=0",
+            ],
+        )
+        .await?;
         rpc.request(
             "initialize",
             json!({ "clientInfo": { "name": "podcast-desk", "title": "PodDesk", "version": env!("CARGO_PKG_VERSION") } }),
@@ -779,7 +970,13 @@ impl Codex {
         Ok(Codex { rpc })
     }
 
-    async fn ask(&self, req: &Request<'_>, cancel: Arc<AtomicBool>, on_delta: &(impl Fn(&str) + Send)) -> Result<String> {
+    async fn ask(
+        &self,
+        req: &Request<'_>,
+        cancel: Arc<AtomicBool>,
+        on_delta: &(impl Fn(&str) + Send),
+        on_thinking: &(impl Fn() + Send),
+    ) -> Result<String> {
         let cwd = work_dir()?.to_string_lossy().to_string();
         let mut thread = json!({
             "cwd": cwd,
@@ -791,19 +988,23 @@ impl Codex {
         if let Some(m) = req.model.filter(|m| !m.is_empty()) {
             thread["model"] = json!(m);
         }
-        let t = self.rpc.request("thread/start", thread, 60).await?;
+        let t = cancellable(&cancel, self.rpc.request("thread/start", thread, 60)).await?;
         let thread_id = t["thread"]["id"]
             .as_str()
             .or(t["threadId"].as_str())
             .ok_or_else(|| anyhow!("Codex 没有返回会话"))?
             .to_string();
         let turn = json!({ "threadId": thread_id, "input": [{ "type": "text", "text": req.user }], "effort": "low" });
-        self.rpc.request("turn/start", turn, 60).await?;
+        cancellable(&cancel, self.rpc.request("turn/start", turn, 60)).await?;
         let started = Instant::now();
+        let mut last_activity = started;
         let mut text = String::new();
         loop {
-            let v = match next_event(&self.rpc, &cancel, started).await {
-                Ok(v) => v,
+            let v = match next_event(&self.rpc, &cancel, started, last_activity, req.priority).await {
+                Ok(v) => {
+                    last_activity = Instant::now();
+                    v
+                }
                 Err(e) => {
                     if cancel.load(Ordering::Relaxed) {
                         let _ = self.rpc.request("turn/interrupt", json!({ "threadId": thread_id }), 5).await;
@@ -850,38 +1051,53 @@ impl Codex {
                             .unwrap_or("Codex 出错")
                     ));
                 }
+                m if m.contains("reasoning") => {
+                    on_thinking();
+                }
+                "item/started" => {
+                    if v["params"]["item"]["type"].as_str().is_some_and(|t| t.contains("reasoning")) {
+                        on_thinking();
+                    }
+                }
                 _ => {}
             }
         }
     }
 }
 
-// ---- Agent Client Protocol (Qwen Code, Kimi Code, OpenCode, Antigravity) -------------------------
+// ---- Agent Client Protocol (Kimi Code, OpenCode, Antigravity) -------------------------
 
 struct Acp {
     rpc: Rpc,
+    spare: std::sync::Mutex<Option<oneshot::Receiver<Value>>>,
 }
 
 fn acp_args(kind: Kind) -> &'static [&'static str] {
     match kind {
         Kind::Antigravity => &["acp", "--agent", "podcast-desk", "--include-default-customizations=false", "--disable-telemetry"],
-        Kind::Qwen => &["--acp"],
         Kind::Kimi | Kind::Opencode => &["acp"],
         _ => &[],
     }
 }
 
+static ANTIGRAVITY_INIT: tokio::sync::OnceCell<()> = tokio::sync::OnceCell::const_new();
+
 impl Acp {
-    async fn start(kind: Kind, path: &Path) -> Result<Acp> {
+    async fn start_raw(kind: Kind, path: &Path) -> Result<Acp> {
         if kind == Kind::Antigravity {
-            let dir = work_dir()?.join(".agents/agents/podcast-desk");
-            std::fs::create_dir_all(&dir)?;
-            std::fs::write(
-                dir.join("agent.md"),
-                "---\nname: podcast-desk\ndescription: Answers in text only\nmainAgent: true\nsubagent: false\ntools: []\ninheritMcp: false\ninheritCustomizations: false\nexcludeDefaultComponents: true\n---\nAnswer in text only. You have no tools.\n",
-            )?;
+            ANTIGRAVITY_INIT
+                .get_or_try_init(|| async {
+                    let dir = work_dir()?.join(".agents/agents/podcast-desk");
+                    std::fs::create_dir_all(&dir)?;
+                    std::fs::write(
+                        dir.join("agent.md"),
+                        "---\nname: podcast-desk\ndescription: Answers in text only\nmainAgent: true\nsubagent: false\ntools: []\ninheritMcp: false\ninheritCustomizations: false\nexcludeDefaultComponents: true\n---\nAnswer in text only. You have no tools.\n",
+                    )?;
+                    Ok::<_, anyhow::Error>(())
+                })
+                .await?;
         }
-        let rpc = Rpc::spawn(path, acp_args(kind)).await?;
+        let rpc = Rpc::spawn(Some(kind), path, acp_args(kind)).await?;
         rpc.request(
             "initialize",
             json!({
@@ -892,7 +1108,40 @@ impl Acp {
             60,
         )
         .await?;
-        Ok(Acp { rpc })
+        Ok(Acp { rpc, spare: std::sync::Mutex::new(None) })
+    }
+
+    async fn start(kind: Kind, path: &Path) -> Result<Acp> {
+        let acp = Self::start_raw(kind, path).await?;
+        acp.prepare_session().await;
+        Ok(acp)
+    }
+
+    async fn prepare_session(&self) {
+        let Ok(dir) = work_dir() else { return };
+        let id = self.rpc.next.fetch_add(1, Ordering::Relaxed);
+        let (tx, rx) = oneshot::channel();
+        self.rpc.waiting.lock().await.insert(id, tx);
+        if self
+            .rpc
+            .send(&json!({ "jsonrpc": "2.0", "id": id, "method": "session/new", "params": { "cwd": dir.to_string_lossy(), "mcpServers": [] } }))
+            .await
+            .is_ok()
+        {
+            *self.spare.lock().unwrap_or_else(|e| e.into_inner()) = Some(rx);
+        }
+    }
+
+    async fn session(&self) -> Result<String> {
+        let spare = self.spare.lock().unwrap_or_else(|e| e.into_inner()).take();
+        if let Some(rx) = spare {
+            if let Ok(Ok(v)) = tokio::time::timeout(Duration::from_secs(30), rx).await {
+                if let Some(id) = v["result"]["sessionId"].as_str() {
+                    return Ok(id.to_string());
+                }
+            }
+        }
+        self.new_session().await
     }
 
     async fn new_session(&self) -> Result<String> {
@@ -903,19 +1152,30 @@ impl Acp {
         r["sessionId"].as_str().map(str::to_string).ok_or_else(|| anyhow!("本机 AI 没有返回会话"))
     }
 
-    async fn ask(&self, req: &Request<'_>, cancel: Arc<AtomicBool>, on_delta: &(impl Fn(&str) + Send)) -> Result<String> {
-        let session = self.new_session().await?;
+    async fn ask(
+        &self,
+        req: &Request<'_>,
+        cancel: Arc<AtomicBool>,
+        on_delta: &(impl Fn(&str) + Send),
+        on_thinking: &(impl Fn() + Send),
+    ) -> Result<String> {
+        let session = cancellable(&cancel, self.session()).await?;
         if let Some(m) = req.model.filter(|m| !m.is_empty()) {
-            if self
-                .rpc
-                .request("session/set_config_option", json!({ "sessionId": session, "configId": "model", "value": m }), 15)
-                .await
-                .is_err()
+            if cancellable(
+                &cancel,
+                self.rpc.request("session/set_config_option", json!({ "sessionId": session, "configId": "model", "value": m }), 15),
+            )
+            .await
+            .is_err()
             {
-                let _ = self
-                    .rpc
-                    .request("session/set_model", json!({ "sessionId": session, "modelId": m }), 15)
-                    .await;
+                if cancel.load(Ordering::Relaxed) {
+                    return Err(anyhow!("已取消"));
+                }
+                let _ = cancellable(
+                    &cancel,
+                    self.rpc.request("session/set_model", json!({ "sessionId": session, "modelId": m }), 15),
+                )
+                .await;
             }
         }
         let prompt = if req.system.is_empty() {
@@ -930,6 +1190,7 @@ impl Acp {
             .send(&json!({ "jsonrpc": "2.0", "id": id, "method": "session/prompt", "params": { "sessionId": session, "prompt": [{ "type": "text", "text": prompt }] } }))
             .await?;
         let started = Instant::now();
+        let mut last_activity = started;
         let mut text = String::new();
         loop {
             if let Ok(done) = rx.try_recv() {
@@ -937,27 +1198,39 @@ impl Acp {
                     return Err(anyhow!("{}", e["message"].as_str().unwrap_or("本机 AI 出错")));
                 }
                 while let Ok(v) = self.rpc.event(0).await {
-                    self.on_update(&v, &session, &mut text, on_delta).await;
+                    if let Some(tool_err) = self.on_update(&v, &session, &mut text, on_delta, on_thinking, &mut last_activity).await {
+                        return Err(anyhow!("{tool_err}"));
+                    }
                 }
+                self.prepare_session().await;
                 return Ok(text);
             }
             if cancel.load(Ordering::Relaxed) {
                 let _ = self.rpc.notify("session/cancel", json!({ "sessionId": session })).await;
                 return Err(anyhow!("已取消"));
             }
-            if started.elapsed() > Duration::from_secs(300) {
-                return Err(anyhow!("本机 AI 超过 5 分钟没有答完"));
-            }
+            check_timeouts(started, last_activity, req.priority)?;
             let v = match tokio::time::timeout(Duration::from_millis(200), async { self.rpc.events.lock().await.recv().await }).await {
                 Ok(Some(v)) => v,
                 Ok(None) => return Err(anyhow!("本机 AI 意外退出：{}", self.rpc.last_error())),
                 Err(_) => continue,
             };
-            self.on_update(&v, &session, &mut text, on_delta).await;
+            if let Some(tool_err) = self.on_update(&v, &session, &mut text, on_delta, on_thinking, &mut last_activity).await {
+                let _ = self.rpc.notify("session/cancel", json!({ "sessionId": session })).await;
+                return Err(anyhow!("{tool_err}"));
+            }
         }
     }
 
-    async fn on_update(&self, v: &Value, session: &str, text: &mut String, on_delta: &(impl Fn(&str) + Send)) {
+    async fn on_update(
+        &self,
+        v: &Value,
+        session: &str,
+        text: &mut String,
+        on_delta: &(impl Fn(&str) + Send),
+        on_thinking: &(impl Fn() + Send),
+        last_activity: &mut Instant,
+    ) -> Option<String> {
         let m = v["method"].as_str().unwrap_or("");
         if v.get("id").is_some() && !m.is_empty() {
             let _ = if m == "session/request_permission" {
@@ -965,23 +1238,42 @@ impl Acp {
             } else {
                 self.rpc.reply_error(&v["id"], "not supported").await
             };
-            return;
+            return None;
         }
         if m != "session/update" || v["params"]["sessionId"].as_str() != Some(session) {
-            return;
+            return None;
         }
         let u = &v["params"]["update"];
-        if u["sessionUpdate"] == "agent_message_chunk" && u["content"]["type"] == "text" {
+        if let Some(err) = check_acp_tool_update(u) {
+            return Some(err);
+        }
+        if u["sessionUpdate"] == "agent_thought_chunk" {
+            *last_activity = Instant::now();
+            on_thinking();
+        } else if u["sessionUpdate"] == "agent_message_chunk" && u["content"]["type"] == "text" {
             if let Some(d) = u["content"]["text"].as_str() {
+                if !d.is_empty() {
+                    *last_activity = Instant::now();
+                }
                 text.push_str(d);
                 on_delta(d);
             }
         }
+        None
     }
 
     async fn close(&self) {
         self.rpc.close().await;
     }
+}
+
+fn check_acp_tool_update(u: &Value) -> Option<String> {
+    let kind = u["sessionUpdate"].as_str()?;
+    if kind == "tool_call" || kind == "tool_call_update" {
+        let name = u["title"].as_str().or(u["kind"].as_str()).filter(|s| !s.is_empty()).unwrap_or("未知工具");
+        return Some(format!("本机 AI 尝试调用外部工具（{name}），PodDesk 已拦截；请重试或切换直连 API 模型"));
+    }
+    None
 }
 
 #[cfg(test)]
@@ -996,5 +1288,61 @@ mod model_list_tests {
         assert_eq!(parse_acp_models(&acp)[0].id, "k3");
         let cfg = json!({ "configOptions": [{ "id": "model", "options": [{ "group": "x", "options": [{ "value": "m1", "name": "M1" }] }, { "value": "m2" }] }] });
         assert_eq!(parse_acp_models(&cfg).iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["m1", "m2"]);
+    }
+
+    #[tokio::test]
+    async fn pool_reserves_interactive_lane_and_cancels_cleanly() {
+        let pool = Pool::new();
+        let cancel_ok = AtomicBool::new(false);
+
+        let (_r1, g1) = pool.acquire_slot(Kind::Codex, Priority::Background, &cancel_ok).await.unwrap();
+        let (_r2, g2) = pool.acquire_slot(Kind::Codex, Priority::Background, &cancel_ok).await.unwrap();
+        assert!(pool.try_acquire(Kind::Codex, Priority::Background).is_none());
+
+        // Interactive request still gets dedicated headroom while background slots are full.
+        let (_ri, gi) = pool.acquire_slot(Kind::Codex, Priority::Interactive, &cancel_ok).await.unwrap();
+        assert_eq!(*pool.state.lock().unwrap().busy.get(&Kind::Codex).unwrap(), 3);
+
+        // Cancelled waiter fails fast without leaking busy or waiting counts.
+        let cancel_hit = Arc::new(AtomicBool::new(true));
+        let err = pool
+            .acquire_slot(Kind::Codex, Priority::Interactive, &cancel_hit)
+            .await
+            .err()
+            .unwrap();
+        assert!(err.to_string().contains("取消"));
+        assert_eq!(*pool.state.lock().unwrap().waiting_interactive.get(&Kind::Codex).unwrap_or(&0), 0);
+
+        drop(gi);
+        drop(g2);
+        drop(g1);
+        assert_eq!(*pool.state.lock().unwrap().busy.get(&Kind::Codex).unwrap_or(&0), 0);
+    }
+
+    #[test]
+    fn heartbeat_timeout_protects_active_thinking_and_fails_fast_when_silent() {
+        let now = Instant::now();
+        assert!(check_timeouts(now - Duration::from_secs(180), now - Duration::from_secs(5), Priority::Interactive).is_ok());
+        assert!(check_timeouts(now - Duration::from_secs(70), now - Duration::from_secs(65), Priority::Background)
+            .unwrap_err()
+            .to_string()
+            .contains("60"));
+        assert!(check_timeouts(now - Duration::from_secs(70), now - Duration::from_secs(65), Priority::Interactive).is_ok());
+        assert!(check_timeouts(now - Duration::from_secs(125), now - Duration::from_secs(125), Priority::Interactive)
+            .unwrap_err()
+            .to_string()
+            .contains("120"));
+        assert!(check_timeouts(now - Duration::from_secs(425), now - Duration::from_secs(1), Priority::Interactive)
+            .unwrap_err()
+            .to_string()
+            .contains("7 分钟"));
+    }
+
+    #[test]
+    fn rejects_acp_tool_calls_immediately() {
+        assert!(check_acp_tool_update(&json!({ "sessionUpdate": "agent_message_chunk" })).is_none());
+        let err = check_acp_tool_update(&json!({ "sessionUpdate": "tool_call", "title": "exa_web_search" })).unwrap();
+        assert!(err.contains("exa_web_search"));
+        assert!(check_acp_tool_update(&json!({ "sessionUpdate": "tool_call_update" })).is_some());
     }
 }

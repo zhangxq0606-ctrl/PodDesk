@@ -11,6 +11,7 @@ import {
   X,
 } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
+import { translateTextsWithAi } from "../lib/ai";
 import { api, type Episode } from "../lib/api";
 import { ask } from "../lib/confirm";
 import { formatDuration, formatPublishDate, notesText, parseClock } from "../lib/format";
@@ -91,16 +92,22 @@ function ShowNotesModal({ ep, text, onClose }: { ep: Episode; text: string; onCl
       return;
     }
     if (translating) return;
+    const store = useStore.getState();
+    const provider = store.getTranslateProvider();
+    if (!provider || !store.isProviderReady(provider)) {
+      store.notify("请先在设置中配置或验证可用 AI 模型", false, {
+        label: "去设置",
+        run: () => store.openSettings("ai", provider?.id),
+      });
+      return;
+    }
     setTranslating(true);
     try {
-      const res = await api.translateGoogle(paras.slice(0, 30), "zh-CN");
-      setZhParas(res.items);
+      const items = await translateTextsWithAi(provider, paras.slice(0, 30));
+      setZhParas(items);
       setShowOrig(false);
-    } catch {
-      useStore.getState().notify("简介翻译失败，请检查网络或代理", false, {
-        label: "去设置网络",
-        run: () => useStore.getState().openSettings("network"),
-      });
+    } catch (err) {
+      store.notify(err instanceof Error ? err.message : "简介翻译失败", false);
     } finally {
       setTranslating(false);
     }

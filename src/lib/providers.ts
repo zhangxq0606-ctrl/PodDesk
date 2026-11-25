@@ -34,14 +34,6 @@ export const AGENT_META: Record<FoundAgent["kind"], AgentMeta> = {
     defaultModels: [],
     installUrl: "https://antigravity.google",
   },
-  qwen: {
-    name: "Qwen Code",
-    vendor: "阿里通义",
-    loginCmd: "qwen",
-    plan: "通义账号",
-    defaultModels: [],
-    installUrl: "https://github.com/QwenLM/qwen-code",
-  },
   kimi: {
     name: "Kimi Code",
     vendor: "月之暗面",
