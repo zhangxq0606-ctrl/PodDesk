@@ -635,8 +635,15 @@ export const useStore = create<AppStore>((set, get) => ({
       get().openEpisode(res.episode);
       get().notify(`已打开单集：${res.episode.title}`);
     } else if (res.show) {
-      await get().loadShowEpisodes(res.show.id);
-      get().go({ kind: "show", id: res.show.id });
+      const showId = res.show.id;
+      if (typeof res.hasMore === "boolean") {
+        const more = res.hasMore;
+        set((s) => ({
+          showHasMore: { ...s.showHasMore, [showId]: more },
+        }));
+      }
+      await get().loadShowEpisodes(showId);
+      get().go({ kind: "show", id: showId });
       get().notify(`已订阅「${res.show.title}」（${res.episodesCount ?? 0} 集）`);
     }
   },

@@ -372,24 +372,20 @@
   padding: 2px 6px;
 }
 
-.sub-modal-hints {
-  margin: 2px 0 0;
-  padding-left: 18px;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  line-height: 1.5;
-}
-
-.sub-modal-link-box {
+.sub-modal-foot-hint {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 10px 12px;
-  border-radius: 10px;
-  border: 1px solid var(--line);
-  background: var(--bg);
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-top: 2px;
+}
+
+.sub-modal-sources {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .sub-modal-err {

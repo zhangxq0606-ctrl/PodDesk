@@ -73,15 +73,30 @@ fn page_video_to_episode(show_id: &str, pv: &youtube::PageVideo) -> Episode {
     }
 }
 
-fn build_cont_state(batch: &youtube::PageBatch) -> Option<youtube::ContinuationState> {
-    batch.api_key.as_ref().map(|key| youtube::ContinuationState {
-        token: batch.continuation.clone(),
-        api_key: key.clone(),
-        client_version: batch
-            .client_version
-            .clone()
-            .unwrap_or_else(|| "2.20250101.00.00".to_string()),
-        exhausted: batch.continuation.is_none(),
+const YT_PAGE_SLICE: usize = 30;
+
+fn slice_page_items(mut items: Vec<youtube::PageVideo>, limit: usize) -> (Vec<youtube::PageVideo>, Vec<youtube::PageVideo>) {
+    let split = limit.min(items.len());
+    let tail = items.split_off(split);
+    (items, tail)
+}
+
+fn build_cont_state(
+    batch: &youtube::PageBatch,
+    buffered: Vec<youtube::PageVideo>,
+) -> Option<youtube::ContinuationState> {
+    batch.api_key.as_ref().map(|key| {
+        let exhausted = buffered.is_empty() && batch.continuation.is_none();
+        youtube::ContinuationState {
+            token: batch.continuation.clone(),
+            api_key: key.clone(),
+            client_version: batch
+                .client_version
+                .clone()
+                .unwrap_or_else(|| "2.20250101.00.00".to_string()),
+            exhausted,
+            buffered,
+        }
     })
 }
 
@@ -193,12 +208,18 @@ async fn fetch_youtube_initial(
                     }
                 }
             }
+            let mut extra: Vec<youtube::PageVideo> = Vec::new();
             for pv in &batch.items {
                 if seen.insert(pv.video_id.clone()) {
-                    rss_eps.push(page_video_to_episode(&show.id, pv));
+                    extra.push(pv.clone());
                 }
             }
-            let cont = build_cont_state(&batch);
+            let take_n = YT_PAGE_SLICE.saturating_sub(rss_eps.len());
+            let (head, tail) = slice_page_items(extra, take_n);
+            for pv in &head {
+                rss_eps.push(page_video_to_episode(&show.id, pv));
+            }
+            let cont = build_cont_state(&batch, tail);
             Ok((show, rss_eps, cont, exact_ids))
         }
         (Ok((show, rss_eps)), Err(_)) => {
@@ -222,8 +243,9 @@ async fn fetch_youtube_initial(
                 updated_at: now_ms(),
                 unplayed: 0,
             };
-            let eps: Vec<Episode> = batch.items.iter().map(|pv| page_video_to_episode(&show_id, pv)).collect();
-            let cont = build_cont_state(&batch);
+            let (head, tail) = slice_page_items(batch.items.clone(), YT_PAGE_SLICE);
+            let eps: Vec<Episode> = head.iter().map(|pv| page_video_to_episode(&show_id, pv)).collect();
+            let cont = build_cont_state(&batch, tail);
             Ok((show, eps, cont, Vec::new()))
         }
         (Err(e), Err(_)) => Err(e),
@@ -285,6 +307,8 @@ pub async fn add_subscription(State(state): State<Arc<AppState>>, Json(body): Js
         return api_error(StatusCode::UNPROCESSABLE_ENTITY, "这个订阅源里没有可播放的节目");
     }
 
+    let has_more = yt_cont.as_ref().is_some_and(|c| !c.exhausted);
+
     {
         let mut conn = state.db_lock();
         if let Err(e) = db::upsert_show(&conn, &show) {
@@ -307,7 +331,7 @@ pub async fn add_subscription(State(state): State<Arc<AppState>>, Json(body): Js
         spawn_youtube_pub_backfill(state.clone(), show.id.clone());
     }
 
-    Json(json!({ "show": show, "episodesCount": eps.len() })).into_response()
+    Json(json!({ "show": show, "episodesCount": eps.len(), "hasMore": has_more })).into_response()
 }
 
 #[derive(Deserialize)]
@@ -473,18 +497,33 @@ pub async fn load_more_show(State(state): State<Arc<AppState>>, AxumPath(id): Ax
             Ok(b) => b,
             Err(e) => return api_error(StatusCode::BAD_GATEWAY, e.to_string()),
         };
-        let eps: Vec<Episode> = batch.items.iter().map(|pv| page_video_to_episode(&show.id, pv)).collect();
-        let cont = build_cont_state(&batch);
-        let has_more = cont.as_ref().is_some_and(|c| !c.exhausted && c.token.is_some());
+        let existing_vids: HashSet<String> = {
+            let conn = state.db_lock();
+            db::list_episodes(&conn, Some(&id), 1000)
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|e| e.video_id)
+                .collect()
+        };
+        let unseen: Vec<youtube::PageVideo> = batch
+            .items
+            .iter()
+            .filter(|pv| !existing_vids.contains(&pv.video_id))
+            .cloned()
+            .collect();
+        let (head, tail) = slice_page_items(unseen, YT_PAGE_SLICE);
+        let eps: Vec<Episode> = head.iter().map(|pv| page_video_to_episode(&show.id, pv)).collect();
+        let cont = build_cont_state(&batch, tail);
+        let has_more = cont.as_ref().is_some_and(|c| !c.exhausted);
 
         let (added, total, updated_show) = {
             let mut conn = state.db_lock();
             let mut next_show = show.clone();
-            if let Some(av) = batch.avatar {
-                next_show.cover = Some(av);
+            if let Some(av) = &batch.avatar {
+                next_show.cover = Some(av.clone());
             }
-            if let Some(desc) = batch.description {
-                next_show.description = Some(desc);
+            if let Some(desc) = &batch.description {
+                next_show.description = Some(desc.clone());
             }
             next_show.updated_at = now_ms();
             if let Err(e) = db::upsert_show(&conn, &next_show) {
@@ -514,17 +553,22 @@ pub async fn load_more_show(State(state): State<Arc<AppState>>, AxumPath(id): Ax
         Ok(c) => c,
         Err(_) => return Json(json!({ "added": 0, "total": total_before, "hasMore": false })).into_response(),
     };
-    let Some(token) = cont.token.clone().filter(|t| !cont.exhausted && !t.is_empty()) else {
-        return Json(json!({ "added": 0, "total": total_before, "hasMore": false })).into_response();
-    };
+    if cont.buffered.is_empty() {
+        let Some(token) = cont.token.clone().filter(|t| !cont.exhausted && !t.is_empty()) else {
+            return Json(json!({ "added": 0, "total": total_before, "hasMore": false })).into_response();
+        };
+        let (items, next_token) = match youtube::fetch_browse_continuation(&cont.api_key, &cont.client_version, &token).await {
+            Ok(pair) => pair,
+            Err(e) => return api_error(StatusCode::BAD_GATEWAY, e.to_string()),
+        };
+        cont.buffered = items;
+        cont.token = next_token;
+    }
 
-    let (items, next_token) = match youtube::fetch_browse_continuation(&cont.api_key, &cont.client_version, &token).await {
-        Ok(pair) => pair,
-        Err(e) => return api_error(StatusCode::BAD_GATEWAY, e.to_string()),
-    };
-    let eps: Vec<Episode> = items.iter().map(|pv| page_video_to_episode(&show.id, pv)).collect();
-    cont.token = next_token;
-    cont.exhausted = cont.token.is_none();
+    let (head, tail) = slice_page_items(std::mem::take(&mut cont.buffered), YT_PAGE_SLICE);
+    cont.buffered = tail;
+    cont.exhausted = cont.buffered.is_empty() && cont.token.is_none();
+    let eps: Vec<Episode> = head.iter().map(|pv| page_video_to_episode(&show.id, pv)).collect();
     let has_more = !cont.exhausted;
 
     let (added, total) = {
@@ -551,5 +595,41 @@ pub async fn mark_show_all_completed(State(state): State<Arc<AppState>>, AxumPat
     match db::mark_show_completed(&conn, &id) {
         Ok(updated) => Json(json!({ "ok": true, "updated": updated })).into_response(),
         Err(e) => api_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pv(n: usize) -> youtube::PageVideo {
+        youtube::PageVideo {
+            video_id: format!("vid_{n}"),
+            title: format!("Ep {n}"),
+            duration: Some(600.0),
+            published: None,
+            cover: format!("https://i.ytimg.com/vi/vid_{n}/mqdefault.jpg"),
+        }
+    }
+
+    #[test]
+    fn slices_and_buffers_large_playlist_batches() {
+        let items: Vec<_> = (0..100).map(pv).collect();
+        let (head, tail) = slice_page_items(items, YT_PAGE_SLICE.saturating_sub(12));
+        assert_eq!(head.len(), 18);
+        assert_eq!(tail.len(), 82);
+
+        let batch = youtube::PageBatch {
+            api_key: Some(String::new()),
+            continuation: None,
+            ..Default::default()
+        };
+        let mut cont = build_cont_state(&batch, tail).unwrap();
+        assert!(!cont.exhausted);
+
+        let (p2, rest2) = slice_page_items(std::mem::take(&mut cont.buffered), YT_PAGE_SLICE);
+        assert_eq!(p2.len(), 30);
+        assert_eq!(rest2.len(), 52);
+        assert_eq!(p2[0].video_id, "vid_18");
     }
 }

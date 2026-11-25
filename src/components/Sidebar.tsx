@@ -772,9 +772,9 @@ export function SubscribeModal() {
 
   return (
     <div className="modal-back" onMouseDown={(e) => e.target === e.currentTarget && close()}>
-      <div className="modal subscribe-modal" role="dialog" aria-modal="true" aria-label="添加订阅或打开链接">
+      <div className="modal subscribe-modal" role="dialog" aria-modal="true" aria-label="添加订阅">
         <div className="modal-head">
-          <h3>添加订阅或打开链接</h3>
+          <h3>添加订阅</h3>
           <button type="button" className="icon-btn" onClick={close} aria-label="关闭">
             <X size={17} />
           </button>
@@ -794,7 +794,7 @@ export function SubscribeModal() {
                 ref={inputRef}
                 value={q}
                 disabled={!!adding}
-                placeholder="粘贴 YouTube / 小宇宙 / RSS 链接，或输入节目名搜索…"
+                placeholder="输入节目名（如 Lex Fridman），或粘贴链接…"
                 spellCheck={false}
                 autoCapitalize="off"
                 autoCorrect="off"
@@ -802,6 +802,15 @@ export function SubscribeModal() {
               />
               {busy || adding ? (
                 <Loader2 size={14} className="spin" />
+              ) : isLink ? (
+                <>
+                  <button type="button" className="icon-btn sm" onClick={reset} aria-label="清空">
+                    <X size={13} />
+                  </button>
+                  <button type="submit" className="search-go" title="打开或订阅 (Enter)">
+                    确认
+                  </button>
+                </>
               ) : q ? (
                 <button type="button" className="icon-btn sm" onClick={reset} aria-label="清空">
                   <X size={13} />
@@ -827,15 +836,7 @@ export function SubscribeModal() {
               </div>
             )}
 
-            {isLink ? (
-              <div className="sub-modal-link-box">
-                <span className="muted small">已识别为链接，按回车或点击确认立即订阅 / 打开</span>
-                <button type="submit" className="btn sm primary" disabled={!!adding}>
-                  {adding ? <Loader2 size={13} className="spin" /> : <Plus size={13} />}
-                  <span>{adding ? "正在读取…" : "订阅 / 打开"}</span>
-                </button>
-              </div>
-            ) : results ? (
+            {!isLink && results ? (
               <div className="sub-modal-results">
                 <SearchResultsList
                   results={results}
@@ -850,20 +851,15 @@ export function SubscribeModal() {
                 />
               </div>
             ) : (
-              <ul className="sub-modal-hints muted small">
-                <li>
-                  <b>搜索播客</b>：直接输入中英文节目名（如 Lex Fridman、张小珺）
-                </li>
-                <li>
-                  <b>YouTube</b>：频道链接（`@名字` / 频道页）、播单或单个视频链接
-                </li>
-                <li>
-                  <b>小宇宙 / Apple Podcasts</b>：节目或单集分享链接
-                </li>
-                <li>
-                  <b>任意 RSS / Atom</b>：直接粘贴订阅地址
-                </li>
-              </ul>
+              <div className="sub-modal-foot-hint">
+                <div className="sub-modal-sources">
+                  <span className="pill-tag">YouTube</span>
+                  <span className="pill-tag">小宇宙</span>
+                  <span className="pill-tag">Apple Podcasts</span>
+                  <span className="pill-tag">RSS</span>
+                </div>
+                <span className="muted small">{isLink ? "回车打开或订阅" : "回车确认"}</span>
+              </div>
             )}
           </form>
         </div>

@@ -299,7 +299,7 @@ export const api = {
     }),
   removeShow: (id: string) => requestJson<{ ok: boolean }>(`/api/shows/${encodeURIComponent(id)}`, { method: "DELETE" }),
   addSubscription: (input: string) =>
-    requestJson<{ show?: Show; episode?: Episode; episodesCount?: number }>("/api/subscriptions", {
+    requestJson<{ show?: Show; episode?: Episode; episodesCount?: number; hasMore?: boolean }>("/api/subscriptions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ input }),

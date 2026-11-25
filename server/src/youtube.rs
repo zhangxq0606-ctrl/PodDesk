@@ -303,7 +303,7 @@ pub struct PageBatch {
     pub client_version: Option<String>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct PageVideo {
     pub video_id: String,
     pub title: String,
@@ -319,6 +319,17 @@ pub struct ContinuationState {
     pub api_key: String,
     pub client_version: String,
     pub exhausted: bool,
+    #[serde(default)]
+    pub buffered: Vec<PageVideo>,
+}
+
+pub fn playlist_browse_id(feed_url: &str) -> Option<String> {
+    let c = regex::Regex::new(r"[?&]playlist_id=([A-Za-z0-9_-]+)").ok()?.captures(feed_url)?;
+    let list_id = &c[1];
+    if list_id.starts_with("UULF") {
+        return None;
+    }
+    Some(format!("VL{list_id}"))
 }
 
 pub fn feed_page_url(feed_url: &str) -> Option<String> {
@@ -339,7 +350,7 @@ async fn fetch_yt_html(url: &str) -> Result<String> {
         .get(url)
         .header("Accept-Language", "en-US,en;q=0.9")
         .header("Cookie", "CONSENT=YES+cb")
-        .timeout(Duration::from_secs(15))
+        .timeout(Duration::from_secs(25))
         .send()
         .await
         .map_err(net::describe)?;
@@ -680,11 +691,16 @@ pub fn collect_page_videos(v: &Value, now: i64, out: &mut Vec<PageVideo>, cont: 
     }
 }
 
-pub fn parse_page_initial_html(html: &str, page_url: &str, now: i64) -> Result<PageBatch> {
-    let data = extract_initial_data(html).ok_or_else(|| anyhow!("未能解析 YouTube 页面初始数据"))?;
+fn parse_page_json(
+    data: &Value,
+    page_url: &str,
+    api_key: Option<String>,
+    client_version: Option<String>,
+    now: i64,
+) -> PageBatch {
     let mut items = Vec::new();
     let mut continuation = None;
-    collect_page_videos(&data, now, &mut items, &mut continuation);
+    collect_page_videos(data, now, &mut items, &mut continuation);
 
     let ch_meta = &data["metadata"]["channelMetadataRenderer"];
     let pl_meta = &data["metadata"]["playlistMetadataRenderer"];
@@ -704,13 +720,13 @@ pub fn parse_page_initial_html(html: &str, page_url: &str, now: i64) -> Result<P
         .map(|s| s.trim().chars().take(2000).collect::<String>())
         .filter(|s| !s.is_empty());
     let author = title.clone();
-    let avatar = extract_avatar(&data);
+    let avatar = extract_avatar(data);
     let link = ch_meta["channelUrl"]
         .as_str()
         .map(String::from)
         .or_else(|| Some(page_url.to_string()));
 
-    Ok(PageBatch {
+    PageBatch {
         title,
         author,
         avatar,
@@ -718,9 +734,54 @@ pub fn parse_page_initial_html(html: &str, page_url: &str, now: i64) -> Result<P
         link,
         items,
         continuation,
-        api_key: extract_cfg_str(html, "INNERTUBE_API_KEY"),
-        client_version: extract_cfg_str(html, "INNERTUBE_CLIENT_VERSION"),
-    })
+        api_key,
+        client_version,
+    }
+}
+
+pub fn parse_page_initial_html(html: &str, page_url: &str, now: i64) -> Result<PageBatch> {
+    let data = extract_initial_data(html).ok_or_else(|| anyhow!("未能解析 YouTube 页面初始数据"))?;
+    Ok(parse_page_json(
+        &data,
+        page_url,
+        extract_cfg_str(html, "INNERTUBE_API_KEY"),
+        extract_cfg_str(html, "INNERTUBE_CLIENT_VERSION"),
+        now,
+    ))
+}
+
+async fn fetch_playlist_browse(browse_id: &str, page_url: &str) -> Result<PageBatch> {
+    const CLIENT_VER: &str = "2.20250101.00.00";
+    let body = json!({
+        "context": {
+            "client": {
+                "clientName": "WEB",
+                "clientVersion": CLIENT_VER,
+                "hl": "en",
+                "gl": "US"
+            }
+        },
+        "browseId": browse_id
+    });
+    let res = net::client()
+        .post("https://www.youtube.com/youtubei/v1/browse?prettyPrint=false")
+        .header("Accept-Language", "en-US,en;q=0.9")
+        .timeout(Duration::from_secs(15))
+        .json(&body)
+        .send()
+        .await
+        .map_err(net::describe)?;
+    if !res.status().is_success() {
+        return Err(anyhow!("YouTube 播单请求失败（{}）", res.status()));
+    }
+    let data: Value = res.json().await?;
+    Ok(parse_page_json(
+        &data,
+        page_url,
+        Some(String::new()),
+        Some(CLIENT_VER.to_string()),
+        now_ms(),
+    ))
 }
 
 pub async fn fetch_page_initial(feed_url: &str) -> Result<PageBatch> {
@@ -734,7 +795,11 @@ pub async fn fetch_browse_continuation(
     client_version: &str,
     token: &str,
 ) -> Result<(Vec<PageVideo>, Option<String>)> {
-    let url = format!("https://www.youtube.com/youtubei/v1/browse?key={}", urlencoding::encode(api_key));
+    let url = if api_key.trim().is_empty() {
+        "https://www.youtube.com/youtubei/v1/browse?prettyPrint=false".to_string()
+    } else {
+        format!("https://www.youtube.com/youtubei/v1/browse?key={}", urlencoding::encode(api_key))
+    };
     let body = json!({
         "context": {
             "client": {
@@ -765,6 +830,13 @@ pub async fn fetch_browse_continuation(
 }
 
 pub async fn fetch_channel_initial(feed_url: &str) -> Result<PageBatch> {
+    if let (Some(browse_id), Some(page_url)) = (playlist_browse_id(feed_url), feed_page_url(feed_url)) {
+        if let Ok(batch) = fetch_playlist_browse(&browse_id, &page_url).await {
+            if !batch.items.is_empty() {
+                return Ok(batch);
+            }
+        }
+    }
     fetch_page_initial(feed_url).await
 }
 
@@ -840,7 +912,21 @@ mod tests {
             feed_page_url("https://www.youtube.com/feeds/videos.xml?playlist_id=PL12345").as_deref(),
             Some("https://www.youtube.com/playlist?list=PL12345")
         );
+        assert_eq!(
+            playlist_browse_id("https://www.youtube.com/feeds/videos.xml?playlist_id=PL12345").as_deref(),
+            Some("VLPL12345")
+        );
+        assert_eq!(
+            playlist_browse_id("https://www.youtube.com/feeds/videos.xml?playlist_id=UULF33VP_gIBzCVcEvaGKBocZA"),
+            None
+        );
         assert_eq!(feed_page_url("https://example.com/feed.xml"), None);
+
+        let legacy_cont: ContinuationState = serde_json::from_str(
+            r#"{"token":"T","apiKey":"K","clientVersion":"2.0","exhausted":false}"#,
+        )
+        .unwrap();
+        assert!(legacy_cont.buffered.is_empty());
 
         assert_eq!(parse_duration_text("1:02:03"), Some(3723.0));
         assert_eq!(parse_duration_text("14:25"), Some(865.0));

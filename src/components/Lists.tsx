@@ -610,6 +610,27 @@ export function ShowView({ id }: { id: string }) {
     void loadShowEpisodes(id);
   }, [id, loadShowEpisodes]);
 
+  const isYtShow = show?.kind === "youtube";
+  const missingPubCount = useMemo(
+    () => (isYtShow && episodes ? episodes.filter((e) => e.videoId && !e.published).length : 0),
+    [isYtShow, episodes],
+  );
+  const pubRetryRef = useRef<{ key: string; tries: number }>({ key: "", tries: 0 });
+  useEffect(() => {
+    if (!isYtShow || !episodes || missingPubCount === 0) return;
+    const key = `${id}:${episodes.length}`;
+    if (pubRetryRef.current.key !== key) {
+      pubRetryRef.current = { key, tries: 0 };
+    }
+    if (pubRetryRef.current.tries >= 2) return;
+    pubRetryRef.current.tries += 1;
+    const delay = pubRetryRef.current.tries === 1 ? 3500 : 5000;
+    const timer = window.setTimeout(() => {
+      void loadShowEpisodes(id).catch(() => {});
+    }, delay);
+    return () => window.clearTimeout(timer);
+  }, [id, isYtShow, episodes, missingPubCount, loadShowEpisodes]);
+
   const counts = useMemo(() => {
     const list = episodes ?? [];
     let unwatched = 0;
