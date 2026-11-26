@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { Activity, ExternalLink, Loader2, Maximize2, Minimize2, Tv } from "lucide-react";
+import { Activity, ExternalLink, Loader2, LogIn, Maximize2, Minimize2, Tv } from "lucide-react";
 import { pieceAt } from "../../lib/ai";
 import { api, type Episode } from "../../lib/api";
 import { useJobs } from "../../lib/jobs";
+import { episodeExternalUrl } from "../../lib/videoSource";
 import { useStore, type PlayerHandle } from "../../store";
 import {
   activeSegIndex,
@@ -38,6 +39,162 @@ function SubtitleOverlay({ ep }: { ep: Episode }) {
         {zh && mode !== "original" && <p className="sub-zh">{pieceAt(zh, true, progress)}</p>}
         {(mode !== "translation" || !zh) && <p className="sub-orig">{pieceAt(seg.text, cjk, progress)}</p>}
       </div>
+    </div>
+  );
+}
+
+export function BilibiliStage({
+  ep,
+  onFullscreen,
+  isFullscreen,
+}: {
+  ep: Episode;
+  onFullscreen?: () => void;
+  isFullscreen?: boolean;
+}) {
+  const abortRef = useRef<AbortController | null>(null);
+  const autoHealedRef = useRef(false);
+  const mountedRef = useRef(true);
+  const health = useStore((s) => s.health);
+  const notify = useStore((s) => s.notify);
+
+  const [streamUrl, setStreamUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [errMsg, setErrMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  const fetchStream = async (fresh = false) => {
+    if (!fresh && abortRef.current) return;
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    setLoading(true);
+    setErrMsg(null);
+    try {
+      const url = await requestYtStreamUrl(ep.id, { fresh, signal: ctrl.signal });
+      if (ctrl.signal.aborted || !mountedRef.current) return;
+      setStreamUrl(url);
+    } catch (err) {
+      if (!mountedRef.current) return;
+      useStore.getState().clearPlaybackPending(ep.id);
+      if ((err instanceof DOMException && err.name === "AbortError") || ctrl.signal.aborted) {
+        setErrMsg("已取消加载 B站视频流，可重试或前往原网页打开。");
+      } else {
+        setErrMsg(err instanceof Error ? err.message : "获取 B站视频流失败");
+      }
+    } finally {
+      if (abortRef.current === ctrl) {
+        abortRef.current = null;
+        if (mountedRef.current) setLoading(false);
+      }
+    }
+  };
+
+  useEffect(() => {
+    autoHealedRef.current = false;
+    setStreamUrl(null);
+    setErrMsg(null);
+    void fetchStream(false);
+    return () => {
+      abortRef.current?.abort();
+    };
+  }, [ep.id, ep.videoId]);
+
+  useEffect(() => {
+    const onLoginChanged = () => {
+      autoHealedRef.current = false;
+      void fetchStream(true);
+    };
+    window.addEventListener("poddesk:bili-login-changed", onLoginChanged);
+    return () => window.removeEventListener("poddesk:bili-login-changed", onLoginChanged);
+  }, [ep.id, ep.videoId]);
+
+  const handleFail = (reason: "error" | "timeout" = "error") => {
+    setStreamUrl(null);
+    if (!autoHealedRef.current) {
+      autoHealedRef.current = true;
+      notify(reason === "timeout" ? "B站视频缓冲超时，正在刷新播放地址…" : "B站视频流已失效，正在刷新播放地址…");
+      void fetchStream(true);
+      return;
+    }
+    useStore.getState().clearPlaybackPending(ep.id);
+    setErrMsg(reason === "timeout" ? "B站视频加载或缓冲超时，请重试或检查网络。" : "B站视频流加载失败，请重试。");
+  };
+
+  if (streamUrl) {
+    return (
+      <LocalVideoStage
+        ep={ep}
+        src={streamUrl}
+        onFail={(reason) => handleFail(reason)}
+        onFullscreen={onFullscreen}
+        isFullscreen={isFullscreen}
+      />
+    );
+  }
+
+  const extHref = episodeExternalUrl(ep) ?? "https://www.bilibili.com";
+
+  return (
+    <div className="video-fallback-box">
+      {loading ? (
+        <div className="row-between" style={{ gap: 12, flexWrap: "wrap" }}>
+          <p className="muted row-tight">
+            <Loader2 size={15} className="spin" /> 正在连接 B站视频流...
+          </p>
+          <button
+            type="button"
+            className="btn sm"
+            onClick={() => {
+              abortRef.current?.abort();
+              abortRef.current = null;
+              setLoading(false);
+              setErrMsg("已取消加载，可重试。");
+            }}
+          >
+            取消
+          </button>
+        </div>
+      ) : (
+        <>
+          <p className="error-text">{errMsg || "B站视频加载失败"}</p>
+          <div className="row-actions" style={{ marginTop: 10 }}>
+            <button
+              type="button"
+              className="btn sm primary"
+              onClick={() => {
+                autoHealedRef.current = false;
+                useStore.getState().playSoon(ep.id);
+                void fetchStream(true);
+              }}
+            >
+              <Tv size={14} /> 重试播放
+            </button>
+            {health?.biliLoginSupported && (
+              <button
+                type="button"
+                className="btn sm"
+                onClick={() => {
+                  void api.openBilibiliLogin().catch((err) => {
+                    notify(err instanceof Error ? err.message : "打开 B站登录窗口失败", false);
+                  });
+                }}
+              >
+                <LogIn size={13} /> 登录 B站
+              </button>
+            )}
+            <a className="btn sm" href={extHref} target="_blank" rel="noreferrer">
+              <ExternalLink size={14} /> 在 B站打开
+            </a>
+          </div>
+        </>
+      )}
     </div>
   );
 }

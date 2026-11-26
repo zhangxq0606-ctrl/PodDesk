@@ -355,6 +355,57 @@ export function sortPromptsByUse<T extends { id: string }>(list: T[]): T[] {
     .map((x) => x.p);
 }
 
+function splitOverlongPiece(chunk: string, cjk: boolean): string[] {
+  const trimmed = chunk.trim();
+  if (!trimmed) return [];
+  if (!cjk) {
+    if (trimmed.length <= 95) return [trimmed];
+    const words = trimmed.split(/\s+/);
+    const out: string[] = [];
+    let cur = "";
+    for (const w of words) {
+      if (cur && cur.length + 1 + w.length > 76) {
+        out.push(cur);
+        cur = w;
+      } else {
+        cur = cur ? `${cur} ${w}` : w;
+      }
+    }
+    if (cur) out.push(cur);
+    return out;
+  }
+  const hard = 24;
+  if (trimmed.length <= hard) return [trimmed];
+  const partsCount = Math.ceil(trimmed.length / 20);
+  const out: string[] = [];
+  let start = 0;
+  for (let i = 1; i < partsCount; i++) {
+    const remaining = trimmed.length - start;
+    const leftParts = partsCount - i + 1;
+    let cut = start + Math.round(remaining / leftParts);
+    // Avoid splitting inside an ASCII word/acronym/number (e.g., "IP", "HTTP2", "1080p").
+    const isAscii = (ch?: string) => !!ch && /[A-Za-z0-9._-]/.test(ch);
+    if (isAscii(trimmed[cut - 1]) && isAscii(trimmed[cut])) {
+      let back = cut;
+      while (back > start + 6 && isAscii(trimmed[back - 1])) back -= 1;
+      let fwd = cut;
+      while (fwd < trimmed.length - 4 && isAscii(trimmed[fwd])) fwd += 1;
+      cut =
+        cut - back <= fwd - cut && !isAscii(trimmed[back - 1])
+          ? back
+          : !isAscii(trimmed[fwd])
+            ? fwd
+            : cut;
+    }
+    const piece = trimmed.slice(start, cut).trim();
+    if (piece) out.push(piece);
+    start = cut;
+  }
+  const tail = trimmed.slice(start).trim();
+  if (tail) out.push(tail);
+  return out.length ? out : [trimmed];
+}
+
 /** Splits a subtitle block into reading-sized pieces for live overlay / audio stage display. */
 export function pieces(text: string, cjk: boolean): string[] {
   const soft = cjk ? 14 : 38;
@@ -367,7 +418,7 @@ export function pieces(text: string, cjk: boolean): string[] {
     const nextStart = (units[n + 1] ?? "").trimStart()[0] ?? "";
     const continues = !cjk && /\.$/.test(u.trim()) && /[a-z0-9]/.test(nextStart);
     if (cur && (cur + u).trim().length > hard) {
-      out.push(cur.trim());
+      out.push(...splitOverlongPiece(cur, cjk));
       cur = "";
     }
     cur += u;
@@ -376,11 +427,11 @@ export function pieces(text: string, cjk: boolean): string[] {
     const abbrev =
       !cjk && /^(?:[A-Z]\.)+(?:[A-Z]\.?)?$|^(?:Mr|Mrs|Ms|Dr|St|vs|etc|Inc|Co|Jr|Sr|No|Vol)\.$/.test(last);
     if ((!abbrev && !continues && /[。！？.!?]["”')）]*$/.test(t)) || (t.length >= soft && /[，；：,;:]$/.test(t))) {
-      out.push(t);
+      out.push(...splitOverlongPiece(t, cjk));
       cur = "";
     }
   }
-  if (cur.trim()) out.push(cur.trim());
+  if (cur.trim()) out.push(...splitOverlongPiece(cur, cjk));
   return out.length ? out : [text];
 }
 

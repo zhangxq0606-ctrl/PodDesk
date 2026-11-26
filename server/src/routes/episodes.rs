@@ -1,8 +1,9 @@
 use super::{api_error, AppState};
-use crate::{asr, db, model::*, net, transcript, youtube};
+use crate::{asr, bilibili, db, model::*, net, transcript, youtube};
 use axum::{
+    body::Body,
     extract::{Multipart, Path as AxumPath, Query, State},
-    http::StatusCode,
+    http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Json, Response},
 };
 use serde::Deserialize;
@@ -85,7 +86,10 @@ pub async fn get_episode(State(state): State<Arc<AppState>>, AxumPath(id): AxumP
         match db::get_episode(&conn, &id) {
             Ok(Some(ep)) => {
                 let _ = db::touch_episode(&conn, &id);
-                let vid = if ep.video_id.is_some()
+                let vid = if ep
+                    .video_id
+                    .as_deref()
+                    .is_some_and(|v| bilibili::parse_video_id(v).is_none())
                     && db::get_blob(&conn, &id, "yt-pub-v1").ok().flatten().is_none()
                 {
                     ep.video_id.clone()
@@ -183,6 +187,44 @@ pub async fn fetch_official_transcript(State(state): State<Arc<AppState>>, AxumP
     };
 
     if let Some(video_id) = ep.video_id.as_deref() {
+        if let Some((bvid, page)) = bilibili::parse_video_id(video_id) {
+            let (segments, source, language, dur) =
+                match bilibili::fetch_subtitles(&state.data_dir, bvid, page, state.yt_login.as_deref()).await {
+                    Ok(v) => v,
+                    Err(e) => {
+                        let msg = e.to_string();
+                        let status = if msg.contains("暂无") || msg.contains("暂未提供") || msg.contains("为空") {
+                            StatusCode::NOT_FOUND
+                        } else {
+                            StatusCode::BAD_GATEWAY
+                        };
+                        return api_error(status, msg);
+                    }
+                };
+            let tr = Transcript {
+                episode_id: ep.id.clone(),
+                source,
+                language,
+                segments,
+            };
+            let conn = state.db_lock();
+            if let Err(e) = db::save_transcript(&conn, &tr) {
+                return api_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string());
+            }
+            let mut backfilled_duration = None;
+            if ep.duration.is_none_or(|d| d <= 0.0) {
+                if let Some(d) = dur.filter(|&d| d.is_finite() && d > 0.0) {
+                    if db::update_episode_duration_if_missing(&conn, &ep.id, d).unwrap_or(false) {
+                        backfilled_duration = Some(d);
+                    }
+                }
+            }
+            return Json(json!({
+                "transcript": tr,
+                "duration": backfilled_duration,
+            }))
+            .into_response();
+        }
         let info = match youtube::video_info(video_id).await {
             Ok(i) => i,
             Err(e) => return api_error(StatusCode::BAD_GATEWAY, e.to_string()),
@@ -571,13 +613,44 @@ pub async fn episode_stream_url(
         match db::get_episode(&conn, &id) {
             Ok(Some(ep)) => match ep.video_id {
                 Some(vid) => (vid, ep.duration),
-                None => return api_error(StatusCode::BAD_REQUEST, "该单集不是 YouTube 视频"),
+                None => return api_error(StatusCode::BAD_REQUEST, "该单集不是在线视频"),
             },
             Ok(None) => return api_error(StatusCode::NOT_FOUND, "单集不存在"),
             Err(e) => return api_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
         }
     };
     let fresh = q.fresh.unwrap_or(false);
+    if let Some((bvid, page)) = bilibili::parse_video_id(&video_id) {
+        return match bilibili::fetch_play_candidates(
+            &state.data_dir,
+            bvid,
+            page,
+            80,
+            fresh,
+            state.yt_login.as_deref(),
+        )
+        .await
+        {
+            Ok(play) => {
+                let mut backfilled_dur = None;
+                if existing_dur.is_none_or(|d| d <= 0.0) {
+                    if let Some(dur) = play.duration.filter(|&d| d.is_finite() && d > 0.0) {
+                        let conn = state.db_lock();
+                        if db::update_episode_duration_if_missing(&conn, &id, dur).unwrap_or(false) {
+                            backfilled_dur = Some(dur);
+                        }
+                    }
+                }
+                let nonce = now_ms();
+                Json(json!({
+                    "url": format!("/api/episodes/{id}/bili-stream?v={nonce}"),
+                    "duration": backfilled_dur,
+                }))
+                .into_response()
+            }
+            Err(e) => api_error(StatusCode::BAD_GATEWAY, e.to_string()),
+        };
+    }
     let data = state.data_dir.clone();
     let yt_login = state.yt_login.clone();
     match asr::with_ytdlp(&state.data_dir, |bin| {
@@ -602,6 +675,85 @@ pub async fn episode_stream_url(
         }
         Err(e) => api_error(StatusCode::BAD_GATEWAY, e.to_string()),
     }
+}
+
+pub async fn bili_media_proxy(
+    State(state): State<Arc<AppState>>,
+    AxumPath(id): AxumPath<String>,
+    req_headers: HeaderMap,
+) -> Response {
+    let video_id = {
+        let conn = state.db_lock();
+        match db::get_episode(&conn, &id) {
+            Ok(Some(ep)) => ep.video_id.unwrap_or_default(),
+            Ok(None) => return api_error(StatusCode::NOT_FOUND, "单集不存在"),
+            Err(e) => return api_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+        }
+    };
+    let Some((bvid, page)) = bilibili::parse_video_id(&video_id) else {
+        return api_error(StatusCode::BAD_REQUEST, "该单集不是 B站视频");
+    };
+    let range_header = req_headers
+        .get(header::RANGE)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string);
+
+    for fresh in [false, true] {
+        let Ok(play) = bilibili::fetch_play_candidates(
+            &state.data_dir,
+            bvid,
+            page,
+            80,
+            fresh,
+            state.yt_login.as_deref(),
+        )
+        .await
+        else {
+            continue;
+        };
+        for upstream_url in &play.urls {
+            for client in bilibili::http_clients() {
+                let mut req = client
+                    .get(upstream_url)
+                    .header("User-Agent", bilibili::BILI_UA)
+                    .header("Referer", bilibili::BILI_REFERER);
+                if let Some(ck) = &play.cookie {
+                    req = req.header("Cookie", ck);
+                }
+                if let Some(r) = &range_header {
+                    req = req.header(header::RANGE, r);
+                }
+                let Ok(Ok(res)) = tokio::time::timeout(std::time::Duration::from_secs(10), req.send()).await else {
+                    continue;
+                };
+                let status = res.status();
+                if !status.is_success() && status != reqwest::StatusCode::PARTIAL_CONTENT {
+                    continue;
+                }
+                let mut builder = Response::builder().status(status);
+                for h in [
+                    header::CONTENT_TYPE,
+                    header::CONTENT_LENGTH,
+                    header::CONTENT_RANGE,
+                    header::ACCEPT_RANGES,
+                ] {
+                    if let Some(val) = res.headers().get(h.as_str()) {
+                        builder = builder.header(h, val.clone());
+                    }
+                }
+                if res.headers().get(header::ACCEPT_RANGES.as_str()).is_none() {
+                    builder = builder.header(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
+                }
+                if res.headers().get(header::CONTENT_TYPE.as_str()).is_none() {
+                    builder = builder.header(header::CONTENT_TYPE, HeaderValue::from_static("video/mp4"));
+                }
+                return builder
+                    .body(Body::from_stream(res.bytes_stream()))
+                    .unwrap_or_else(|_| api_error(StatusCode::BAD_GATEWAY, "构造流响应失败"));
+            }
+        }
+    }
+    api_error(StatusCode::BAD_GATEWAY, "B站视频流读取失败或已过期，请重试")
 }
 
 #[cfg(test)]

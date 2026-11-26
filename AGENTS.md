@@ -44,5 +44,6 @@
 - **首版裁剪红线**：不引入内置 `whisper-rs`（避免 `CMake`/`LLVM` 编译链）、不硬编码原作者私有服务（`*.qiaomu.ai`、`rss.qiaomu.ai`、`elon.qiaomu.ai` 中转）、不引入 OTA 热更新与上游 `v0.3.2` 视频切片/中文配音跟读/Anki 模块。
 - **隐私与合规边界**：严格遵循 `AGPL-3.0-only` 开源要求（复用上游源码时保留协议声明）；永不在用户未明确选择时把音频上传至云端；API Key 与可选 `cookies.txt` 严禁写入仓库、日志或外发响应。
 - **前端工程防坑**：React 状态订阅使用精细切片（避免整棵 Store 重渲染），禁止在组件内部定义子组件，交互确认禁用原生 `window.confirm/alert/prompt`。
+- **主动附预览命令（用户约定）**：涉及界面、桌面端弹窗或需船长实机预览验收的改动收尾时，直接在回复末尾附上可复制启动命令——含桌面端弹窗/托盘能力用 `npm run tauri:dev`（若修改了前端，先确认已构建最新静态产物 `npm run build`），仅测本地服务与浏览器工作台用 `cargo run --manifest-path server/Cargo.toml`。
 
 全局行为、安全、授权、Git 与终端规则由自动加载的全局 `AGENTS.md` 提供，本文件不重复，也不得降低其约束。

@@ -27,6 +27,7 @@ import {
   type VideoTab,
 } from "../lib/layout";
 import { useEpisodeTitleDisplay } from "../lib/zh";
+import { episodeExternalUrl, isBilibiliEpisode, isYouTubeEpisode } from "../lib/videoSource";
 import { useStore } from "../store";
 import { ChatPanel, EpisodeOverviewCard, GuideTimelinePanel } from "./ChatPanel";
 import { SkeletonEpisode } from "./Illustrations";
@@ -215,7 +216,7 @@ export function EpisodeView({ id }: { id: string }) {
     let warmedForEpisode = false;
     let warmAbort: AbortController | null = null;
     const maybeWarmBlocked = (target: Episode) => {
-      if (warmedForEpisode || !target.videoId || !wasYtBlocked(target.videoId)) return;
+      if (warmedForEpisode || !isYouTubeEpisode(target) || !target.videoId || !wasYtBlocked(target.videoId)) return;
       warmedForEpisode = true;
       warmAbort = new AbortController();
       void warmYtStreamUrl(target.id, warmAbort.signal).catch(() => {});
@@ -320,7 +321,7 @@ export function EpisodeView({ id }: { id: string }) {
     });
   };
 
-  const origHref = ep.videoId ? `https://www.youtube.com/watch?v=${ep.videoId}` : ep.link;
+  const origHref = episodeExternalUrl(ep);
 
   const toggleTab = (target: RightTab) => {
     if (showVideo) {
@@ -387,7 +388,13 @@ export function EpisodeView({ id }: { id: string }) {
                   <span>
                     {ep.showTitle ||
                       extractSingleAuthor(ep) ||
-                      (ep.videoId ? "YouTube 单集" : ep.audioUrl ? "本地/单集音频" : "导入文稿")}
+                      (isBilibiliEpisode(ep)
+                        ? "B站单集"
+                        : ep.videoId
+                          ? "YouTube 单集"
+                          : ep.audioUrl
+                            ? "本地/单集音频"
+                            : "导入文稿")}
                   </span>
                   {ep.published ? <span>· {formatPublishDate(ep.published)}</span> : null}
                   {ep.duration ? <span>· {formatDuration(ep.duration)}</span> : null}
@@ -417,10 +424,8 @@ export function EpisodeView({ id }: { id: string }) {
                       if (!ep.videoId) return;
                       const st = useStore.getState();
                       const t = st.current?.id === ep.id ? st.time : ep.progress;
-                      e.currentTarget.href =
-                        t > 5
-                          ? `https://www.youtube.com/watch?v=${ep.videoId}&t=${Math.floor(t)}s`
-                          : `https://www.youtube.com/watch?v=${ep.videoId}`;
+                      const nextHref = episodeExternalUrl(ep, t);
+                      if (nextHref) e.currentTarget.href = nextHref;
                     }}
                   >
                     <ExternalLink size={15} />
@@ -465,11 +470,14 @@ export function EpisodeView({ id }: { id: string }) {
                     isFullscreen={isFullscreen}
                     onFullscreen={() => window.dispatchEvent(new CustomEvent("poddesk:toggle-fullscreen"))}
                   />
-                  <Controls
-                    ep={stageEp}
-                    isFullscreen={isFullscreen}
-                    onFullscreen={() => window.dispatchEvent(new CustomEvent("poddesk:toggle-fullscreen"))}
-                  />
+                  <div className="video-deck">
+                    <Controls
+                      ep={stageEp}
+                      isFullscreen={isFullscreen}
+                      onFullscreen={() => window.dispatchEvent(new CustomEvent("poddesk:toggle-fullscreen"))}
+                    />
+                    <EpisodeOverviewCard ep={ep} showEmptyCta={false} />
+                  </div>
                 </div>
               ) : hasMedia ? (
                 <div className="stage-audio-wrap">
@@ -481,7 +489,7 @@ export function EpisodeView({ id }: { id: string }) {
               )}
             </div>
 
-            <EpisodeOverviewCard ep={ep} showEmptyCta={!showVideo} />
+            {!showVideo && <EpisodeOverviewCard ep={ep} showEmptyCta />}
           </section>
         </div>
 

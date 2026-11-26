@@ -77,6 +77,14 @@ describe("ai utilities", () => {
 
     const zh = pieces("第一句话很短。第二句话接着讲完！第三句继续。", true);
     expect(zh).toEqual(["第一句话很短。", "第二句话接着讲完！", "第三句继续。"]);
+
+    const unpunctuated = pieces(
+      "今天这些视频我们就来详细了解一下IP地址的那些事如果只有一台电脑那么这台电脑的数据就会全部存储在这台电脑的硬盘上与其他的电脑不会产生任何的干系",
+      true,
+    );
+    expect(unpunctuated.length).toBeGreaterThanOrEqual(3);
+    expect(unpunctuated.every((p) => p.length <= 24)).toBe(true);
+    expect(unpunctuated.join("")).toContain("IP地址");
   });
 
   it("chunks untranslated segments by line count, char cap, and gaps", () => {

@@ -24,13 +24,15 @@ import { clock, formatDate, formatDuration, groupLabel, notesText } from "../lib
 import { clearEpisodeJobs } from "../lib/jobs";
 import { isEpisodeDone, pickContinueHero } from "../lib/recent";
 import { getCachedTitleZh, useEpisodeTitleDisplay, useTitleZh } from "../lib/zh";
+import { isBilibiliEpisode, isYouTubeEpisode } from "../lib/videoSource";
 import { useStore } from "../store";
 import { DeskArt, EqBars, SkeletonFeed } from "./Illustrations";
 import { MonthFilter, useMonthFilter } from "./MonthFilter";
 
 function cleanCoverUrl(ep: Episode): string | undefined {
-  if (!ep.cover) return ep.videoId ? `https://i.ytimg.com/vi/${ep.videoId}/mqdefault.jpg` : undefined;
-  return ep.cover.replace(/\/hqdefault\.jpg(\?|$)/i, "/mqdefault.jpg$1");
+  const isYt = isYouTubeEpisode(ep);
+  if (!ep.cover) return isYt && ep.videoId ? `https://i.ytimg.com/vi/${ep.videoId}/mqdefault.jpg` : undefined;
+  return isYt ? ep.cover.replace(/\/hqdefault\.jpg(\?|$)/i, "/mqdefault.jpg$1") : ep.cover;
 }
 
 const HOME_TAB_KEY = "podcast-desk-home-tab";
@@ -78,16 +80,19 @@ const EpisodeRow = memo(function EpisodeRow({
       }}
     >
       <div className={`ep-thumb ${ep.videoId ? "is-video" : "square"}`}>
-        {coverSrc && !ep.videoId && <img className="thumb-bg" src={coverSrc} alt="" aria-hidden loading="lazy" />}
+        {coverSrc && !ep.videoId && (
+          <img className="thumb-bg" src={coverSrc} alt="" aria-hidden loading="lazy" referrerPolicy="no-referrer" />
+        )}
         {coverSrc ? (
           <img
             className="thumb-img"
             src={coverSrc}
             alt=""
             loading="lazy"
+            referrerPolicy="no-referrer"
             onError={(e) => {
               const img = e.currentTarget;
-              if (ep.videoId && !img.dataset.f) {
+              if (isYouTubeEpisode(ep) && ep.videoId && !img.dataset.f) {
                 img.dataset.f = "1";
                 img.src = `https://i.ytimg.com/vi/${ep.videoId}/hqdefault.jpg`;
               } else {
@@ -112,7 +117,14 @@ const EpisodeRow = memo(function EpisodeRow({
         <p className="ep-kicker">
           {showShow && (
             <span className="show-name">
-              {ep.showTitle || (ep.videoId ? "YouTube 单集" : ep.audioUrl ? "本地/单集音频" : "导入文稿")}
+              {ep.showTitle ||
+                (isBilibiliEpisode(ep)
+                  ? "B站单集"
+                  : ep.videoId
+                    ? "YouTube 单集"
+                    : ep.audioUrl
+                      ? "本地/单集音频"
+                      : "导入文稿")}
             </span>
           )}
           {dateMs ? <span>{formatDate(dateMs)}</span> : null}
@@ -270,9 +282,9 @@ function ContinueHero({ ep }: { ep: Episode }) {
       }}
     >
       <div className={`hero-cover ${ep.videoId ? "wide" : ""}`}>
-        {coverSrc && !ep.videoId && <img className="thumb-bg" src={coverSrc} alt="" aria-hidden />}
+        {coverSrc && !ep.videoId && <img className="thumb-bg" src={coverSrc} alt="" aria-hidden referrerPolicy="no-referrer" />}
         {coverSrc ? (
-          <img className="thumb-img" src={coverSrc} alt="" />
+          <img className="thumb-img" src={coverSrc} alt="" referrerPolicy="no-referrer" />
         ) : (
           <div className="cover-fallback">
             {ep.videoId ? <Tv size={22} /> : ep.audioUrl ? <Headphones size={22} /> : <FileText size={22} />}
@@ -416,7 +428,7 @@ export function HomeView() {
           <DeskArt />
           <h1>开始你的播客与视频精读</h1>
           <p className="muted">
-            粘贴 YouTube、小宇宙或任意播客 RSS 链接，或者导入本地音视频与文稿，即可同步双语阅读与在场感 AI 问答。
+            粘贴 YouTube、B站、小宇宙、Spotify 或任意播客 RSS 与音视频直链，或者导入本地音视频与文稿，即可同步双语阅读与在场感 AI 问答。
           </p>
           <div className="row-actions center" style={{ marginTop: 8 }}>
             <button type="button" className="btn primary" onClick={() => setSubscribeOpen(true)}>

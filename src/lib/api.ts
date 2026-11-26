@@ -10,6 +10,7 @@ export interface HealthInfo {
   githubMirror?: string;
   activeJobs?: number;
   ytLoginSupported?: boolean;
+  biliLoginSupported?: boolean;
 }
 
 export interface UpdateInfo {
@@ -485,6 +486,9 @@ export const api = {
   getYouTubeAuth: () => requestJson<{ supported: boolean; signedIn: boolean }>("/api/youtube/auth"),
   openYouTubeLogin: () => requestJson<{ ok: boolean }>("/api/youtube/auth/login", { method: "POST" }),
   logoutYouTube: () => requestJson<{ ok: boolean; signedIn: boolean }>("/api/youtube/auth/logout", { method: "POST" }),
+  getBilibiliAuth: () => requestJson<{ supported: boolean; signedIn: boolean }>("/api/bilibili/auth"),
+  openBilibiliLogin: () => requestJson<{ ok: boolean }>("/api/bilibili/auth/login", { method: "POST" }),
+  logoutBilibili: () => requestJson<{ ok: boolean; signedIn: boolean }>("/api/bilibili/auth/logout", { method: "POST" }),
   checkUpdate: (force = false) =>
     requestJson<UpdateInfo>(`/api/app/update${force ? "?force=1" : ""}`),
 
