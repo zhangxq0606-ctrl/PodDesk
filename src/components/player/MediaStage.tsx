@@ -2,10 +2,11 @@ import { FileText, Headphones, Loader2, Pause, Play } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import type { Episode } from "../../lib/api";
 import { useJobs } from "../../lib/jobs";
+import { parseVideoSource } from "../../lib/videoSource";
 import { useStore } from "../../store";
 import { AudioSubtitles } from "./AudioStage";
 import { isVideoMediaUrl } from "./playerUtils";
-import { LocalVideoStage, YouTubeStage } from "./VideoStage";
+import { BilibiliStage, LocalVideoStage, YouTubeStage } from "./VideoStage";
 
 export function MediaStage({
   ep,
@@ -28,23 +29,31 @@ export function MediaStage({
   const hasTranscript = useJobs((s) => !!(s.transcripts[ep.id]?.segments.length));
   const audioStageSub = useStore((s) => s.prefs.audioStageSub);
   const isCurrent = current?.id === ep.id;
+  const videoSrc = parseVideoSource(ep.videoId);
 
-  if (ep.videoId) {
+  if (videoSrc) {
     if (!isCurrent) {
+      const standbyCover =
+        videoSrc.kind === "youtube" ? `https://i.ytimg.com/vi/${videoSrc.id}/mqdefault.jpg` : ep.cover;
       return (
         <div className="video video-standby">
-          <img
-            src={`https://i.ytimg.com/vi/${ep.videoId}/mqdefault.jpg`}
-            alt=""
-            className="standby-img"
-            onError={(e) => {
-              const img = e.currentTarget;
-              if (!img.dataset.f) {
-                img.dataset.f = "1";
-                img.src = `https://i.ytimg.com/vi/${ep.videoId}/hqdefault.jpg`;
-              }
-            }}
-          />
+          {standbyCover && (
+            <img
+              src={standbyCover}
+              alt=""
+              className="standby-img"
+              referrerPolicy="no-referrer"
+              onError={(e) => {
+                const img = e.currentTarget;
+                if (videoSrc.kind === "youtube" && !img.dataset.f) {
+                  img.dataset.f = "1";
+                  img.src = `https://i.ytimg.com/vi/${videoSrc.id}/hqdefault.jpg`;
+                } else {
+                  img.style.visibility = "hidden";
+                }
+              }}
+            />
+          )}
           <button
             type="button"
             className="big-play"
@@ -58,6 +67,9 @@ export function MediaStage({
           </button>
         </div>
       );
+    }
+    if (videoSrc.kind === "bilibili") {
+      return <BilibiliStage ep={ep} onFullscreen={onFullscreen} isFullscreen={isFullscreen} />;
     }
     return <YouTubeStage ep={ep} onFullscreen={onFullscreen} isFullscreen={isFullscreen} />;
   }

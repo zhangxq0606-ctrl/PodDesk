@@ -1,5 +1,5 @@
 use super::{api_error, AppState};
-use crate::{db, feeds, model::*, youtube};
+use crate::{bilibili, db, feeds, model::*, youtube};
 use axum::{
     extract::{Path as AxumPath, Query, State},
     http::StatusCode,
@@ -73,7 +73,48 @@ fn page_video_to_episode(show_id: &str, pv: &youtube::PageVideo) -> Episode {
     }
 }
 
+async fn single_bilibili(state: &AppState, target: &bilibili::BiliTarget) -> Result<Episode, String> {
+    let cookie = bilibili::resolve_cookie_header(&state.data_dir, state.yt_login.as_deref());
+    let view = bilibili::fetch_view(target, cookie.as_deref())
+        .await
+        .map_err(|e| e.to_string())?;
+    let ep = bilibili::to_episode(&view);
+    let mut conn = state.db_lock();
+    db::upsert_episodes(&mut conn, std::slice::from_ref(&ep)).map_err(|e| e.to_string())?;
+    Ok(db::get_episode(&conn, &ep.id).map_err(|e| e.to_string())?.unwrap_or(ep))
+}
+
+fn direct_media_title(url: &str) -> String {
+    let clean = url.split(['?', '#']).next().unwrap_or(url);
+    let segment = clean.rsplit('/').next().unwrap_or("");
+    let decoded = urlencoding::decode(segment).map(|s| s.into_owned()).unwrap_or_else(|_| segment.to_string());
+    let stem = std::path::Path::new(&decoded)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    stem.unwrap_or("在线音视频").chars().take(120).collect()
+}
+
 const YT_PAGE_SLICE: usize = 30;
+
+fn single_direct_media(state: &AppState, url: &str) -> Result<Episode, String> {
+    let ep = Episode {
+        id: short_hash(&format!("single:url:{url}"), 20),
+        show_id: "single".into(),
+        guid: url.to_string(),
+        title: direct_media_title(url),
+        published: None,
+        audio_url: Some(url.to_string()),
+        link: Some(url.to_string()),
+        notes: Some(format!("在线音视频直链：{url}")),
+        touched_at: Some(now_ms()),
+        ..Default::default()
+    };
+    let mut conn = state.db_lock();
+    db::upsert_episodes(&mut conn, std::slice::from_ref(&ep)).map_err(|e| e.to_string())?;
+    Ok(db::get_episode(&conn, &ep.id).map_err(|e| e.to_string())?.unwrap_or(ep))
+}
 
 fn slice_page_items(mut items: Vec<youtube::PageVideo>, limit: usize) -> (Vec<youtube::PageVideo>, Vec<youtube::PageVideo>) {
     let split = limit.min(items.len());
@@ -275,6 +316,14 @@ pub async fn add_subscription(State(state): State<Arc<AppState>>, Json(body): Js
         feeds::Source::YouTubeVideo(video_id) => match single_youtube(&state, &video_id).await {
             Ok(episode) => return Json(json!({ "episode": episode })).into_response(),
             Err(err) => return api_error(StatusCode::BAD_GATEWAY, err),
+        },
+        feeds::Source::BilibiliVideo(target) => match single_bilibili(&state, &target).await {
+            Ok(episode) => return Json(json!({ "episode": episode })).into_response(),
+            Err(err) => return api_error(StatusCode::BAD_GATEWAY, err),
+        },
+        feeds::Source::DirectMedia(url) => match single_direct_media(&state, &url) {
+            Ok(episode) => return Json(json!({ "episode": episode })).into_response(),
+            Err(err) => return api_error(StatusCode::INTERNAL_SERVER_ERROR, err),
         },
         feeds::Source::XiaoyuzhouEpisode(url) => match feeds::xiaoyuzhou_episode(&url).await {
             Ok(mut ep) => {

@@ -1,5 +1,5 @@
 use super::{api_error, episodes::detect_script_lang, AppState};
-use crate::{asr, asr_context, cloud, db, model::*, transcript};
+use crate::{asr, asr_context, bilibili, cloud, db, model::*, transcript};
 use axum::{
     extract::{Path as AxumPath, State},
     http::StatusCode,
@@ -387,17 +387,30 @@ async fn run_transcribe(
             .await?;
             dest
         } else if let Some(vid) = ep.video_id.as_deref() {
-            send(json!({ "type": "progress", "stage": "正在通过 yt-dlp 下载音轨...", "pct": 0.05 }));
-            let yt_login = state.yt_login.clone();
-            asr::with_ytdlp(&state.data_dir, |bin| {
-                let data = state.data_dir.clone();
-                let dir = job_dir.clone();
-                let c = cancel.clone();
-                let v = vid.to_string();
-                let login = yt_login.clone();
-                async move { asr::youtube_audio(&data, &bin, &v, &dir, c, login).await }
-            })
-            .await?
+            if let Some((bvid, page)) = bilibili::parse_video_id(vid) {
+                send(json!({ "type": "progress", "stage": "正在下载 B站视频音频...", "pct": 0.05 }));
+                bilibili::download_audio(
+                    &state.data_dir,
+                    bvid,
+                    page,
+                    &job_dir,
+                    cancel.clone(),
+                    state.yt_login.as_deref(),
+                )
+                .await?
+            } else {
+                send(json!({ "type": "progress", "stage": "正在通过 yt-dlp 下载音轨...", "pct": 0.05 }));
+                let yt_login = state.yt_login.clone();
+                asr::with_ytdlp(&state.data_dir, |bin| {
+                    let data = state.data_dir.clone();
+                    let dir = job_dir.clone();
+                    let c = cancel.clone();
+                    let v = vid.to_string();
+                    let login = yt_login.clone();
+                    async move { asr::youtube_audio(&data, &bin, &v, &dir, c, login).await }
+                })
+                .await?
+            }
         } else {
             return Err(anyhow::anyhow!("该单集没有可用于转写的音频或视频来源"));
         };

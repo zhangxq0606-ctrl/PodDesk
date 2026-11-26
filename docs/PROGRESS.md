@@ -27,6 +27,8 @@ last_verified: 2026-11-26
 
 # 待验证事项
 
+- B站桌面端内置小窗扫码登录后实拉官方/AI 字幕、高画质流切换，以及 Mac 端实机播放拖拽与代理规则联调；
+- 在线音视频直链、`b23.tv` 手机分享短链及多P分集前端实机点击复核；
 - 窄屏（`720×560`）与无字幕单集 `NoTranscriptCard` 实景点击、macOS 托盘右键菜单点击（先前受自动化录屏权限限制）；
 - 超 12 集播单翻页（如 Dwarkesh）与直链中途取消的边界复核；
 - `Qwen3-ASR 1.7B` 长音频（>30 分钟）切句密度，以及付费云端 ASR 与除 `Codex` / `agy` 外其他本机 CLI Agent（`Claude Code`、`Kimi Code`、`OpenCode`）端到端实测。
@@ -43,6 +45,10 @@ last_verified: 2026-11-26
 
 # 最近完成
 
+- **2026-11-26（`feat/bilibili` 分支：B站单集与扫码取稿、音视频直链及 Spotify 查源）**：
+  - 后端多源与流代理：新增 [bilibili.rs](../server/src/bilibili.rs) 支持长链/`b23.tv` 短链/`?p=N` 分集解析、直连优先代理兜底策略、WBI 签名拉取官方及 B站 AI 字幕、按 `upos-*` 官方节点优先排序 CDN、音频流下载走现有 ASR 与本地 Range 防盗链流代理（`/api/episodes/{id}/bili-stream`，[episodes.rs](../server/src/routes/episodes.rs)）；在 [transcript.rs](../server/src/transcript.rs) 为无标点中文长句补充按字数节奏切分；同步在 [feeds.rs](../server/src/feeds.rs) 与 [shows.rs](../server/src/routes/shows.rs) 接入在线音视频直链单集与 Spotify 播客反查公开 RSS。
+  - 桌面扫码与播放器打磨：泛化 [ytlogin.rs](../desktop/src/ytlogin.rs) 与 [settings.rs](../server/src/routes/settings.rs) 增加 B站内置扫码登录窗及自动同步（[NetworkSettingsSection.tsx](../src/components/settings/NetworkSettingsSection.tsx)、[TranscriptPanel.tsx](../src/components/TranscriptPanel.tsx)）；新增 [videoSource.ts](../src/lib/videoSource.ts) 拆分 YouTube 与 B站播放器、封面无 Referer 防拦截、未登录简洁引导、全屏字幕缩放与单轨主字号，并将非全屏视频播控条与「内容精炼」融为一体卡片（[VideoStage.tsx](../src/components/player/VideoStage.tsx)、[MediaStage.tsx](../src/components/player/MediaStage.tsx)、[PlayerPanel.tsx](../src/components/PlayerPanel.tsx)、[Lists.tsx](../src/components/Lists.tsx)、[player.css](../src/styles/player.css)），同步更新 [PROJECT.md](PROJECT.md) 未来清单。
+  - 校验与接口实测：`npm run typecheck`、`npm run test`（Vitest 10 文件 43 用例）、`npm run build`、`cargo test --manifest-path server/Cargo.toml`（76 passed, 1 ignored）、`cargo test --manifest-path desktop/Cargo.toml`（2 passed）与 `npm run version:check` 全部通过，本地真实 HTTP 冒烟实测 B站视频入库与 `/bili-stream` 返回 `206 Partial Content` 正常、Spotify 公开节目反查入库 300 集。
 - **2026-11-26（`v0.2.4` 真机验收收口与文档事实同步）**：确认 `v0.2.4` GitHub Release 公开、官网直链及双端真机验收通过，并同步更新 [PROJECT.md](PROJECT.md)、[ARCHITECTURE.md](ARCHITECTURE.md) 与本文件，清理已剥离的谷歌翻译残留说明、对齐 HTTP 接口与单测基线、裁剪已否决的极客增强项。
 - **2026-11-26（`v0.2.4` 检查更新限流回退热修）**：为 [update.rs](../server/src/update.rs) 增加 `releases.atom`（含镜像回退）备用通道以绕开 GitHub API 匿名 `403/429` 限流，并在 [store.ts](../src/store.ts)、[SettingsModal.tsx](../src/components/SettingsModal.tsx)、[ReadingSettingsSection.tsx](../src/components/settings/ReadingSettingsSection.tsx) 与 [UpdateModal.tsx](../src/components/UpdateModal.tsx) 透传真实失败原因。
 - **2026-11-26（桌面代理与登录防死锁、网络诊断、`agy` 兼容及播放器/字幕交互打磨）**：

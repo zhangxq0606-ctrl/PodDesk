@@ -256,6 +256,10 @@ pub fn client() -> reqwest::Client {
     guard.client.clone()
 }
 
+pub fn direct_client() -> reqwest::Client {
+    DIRECT.clone()
+}
+
 /// A GET with up to two retries on connection-level failures, timeouts, 429 and 5xx.
 pub async fn get(url: &str) -> Result<reqwest::Response> {
     let mut last: Option<anyhow::Error> = None;

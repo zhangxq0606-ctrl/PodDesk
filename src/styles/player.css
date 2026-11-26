@@ -130,6 +130,35 @@
   margin-bottom: -4px;
 }
 
+.video-deck {
+  width: 100%;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--surface-card);
+  box-shadow: var(--rim-top), var(--contact-shadow);
+  overflow: hidden;
+}
+
+.video-deck .controls {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+
+.video-deck .overview-card {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  border-top: 1px solid var(--line);
+}
+
+.video-deck .overview-head {
+  min-height: 36px;
+  padding: 4px 12px;
+}
+
 /* ---- overview card (episode left column collapsible) ---- */
 .overview-card {
   border-radius: 12px;
@@ -301,6 +330,16 @@
   background: #000000;
 }
 
+.stage-video-wrap:fullscreen .video-deck,
+.stage-video-wrap:-webkit-full-screen .video-deck {
+  display: contents;
+}
+
+.stage-video-wrap:fullscreen .overview-card,
+.stage-video-wrap:-webkit-full-screen .overview-card {
+  display: none;
+}
+
 .stage-video-wrap:fullscreen .subtitle-overlay,
 .stage-video-wrap:-webkit-full-screen .subtitle-overlay {
   bottom: 76px;
@@ -314,6 +353,9 @@
   transform: translateX(-50%);
   width: min(760px, calc(100vw - 32px));
   z-index: 20;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  box-shadow: var(--rim-top), var(--contact-shadow);
   background: color-mix(in srgb, var(--overlay) 92%, transparent);
   backdrop-filter: blur(16px);
   opacity: 0.12;
@@ -369,8 +411,8 @@
 
 .subtitle-overlay {
   position: absolute;
-  left: 4%;
-  right: 4%;
+  left: max(5%, 52px);
+  right: max(5%, 52px);
   bottom: clamp(10px, 2.6%, 18px);
   display: flex;
   flex-direction: column;
@@ -395,12 +437,15 @@
   color: #ffffff;
   line-height: 1.42;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
-  max-width: 100%;
+  max-width: min(100%, 34em);
+  text-wrap: balance;
 }
 
-.subtitle-overlay .sub-zh {
+.subtitle-overlay .sub-zh,
+.subtitle-overlay .sub-orig:only-child {
   font-size: clamp(17px, 1.85vw, 23px);
   font-weight: 600;
+  color: #ffffff;
 }
 
 .subtitle-overlay .sub-orig {
@@ -408,7 +453,8 @@
   color: rgba(255, 255, 255, 0.92);
 }
 
-.sub-s .subtitle-overlay .sub-zh {
+.sub-s .subtitle-overlay .sub-zh,
+.sub-s .subtitle-overlay .sub-orig:only-child {
   font-size: clamp(15px, 1.55vw, 19.5px);
 }
 
@@ -416,12 +462,62 @@
   font-size: clamp(13px, 1.25vw, 15.5px);
 }
 
-.sub-l .subtitle-overlay .sub-zh {
+.sub-l .subtitle-overlay .sub-zh,
+.sub-l .subtitle-overlay .sub-orig:only-child {
   font-size: clamp(20px, 2.2vw, 27px);
 }
 
 .sub-l .subtitle-overlay .sub-orig {
   font-size: clamp(16.5px, 1.75vw, 21.5px);
+}
+
+.stage-video-wrap:fullscreen .sub-box,
+.stage-video-wrap:-webkit-full-screen .sub-box {
+  gap: 6px;
+}
+
+.stage-video-wrap:fullscreen .subtitle-overlay p,
+.stage-video-wrap:-webkit-full-screen .subtitle-overlay p {
+  padding: 6px 16px;
+  border-radius: 9px;
+  line-height: 1.44;
+  max-width: min(100%, 38em);
+}
+
+.stage-video-wrap:fullscreen .subtitle-overlay .sub-zh,
+.stage-video-wrap:-webkit-full-screen .subtitle-overlay .sub-zh,
+.stage-video-wrap:fullscreen .subtitle-overlay .sub-orig:only-child,
+.stage-video-wrap:-webkit-full-screen .subtitle-overlay .sub-orig:only-child {
+  font-size: clamp(23px, 2.1vw, 34px);
+}
+
+.stage-video-wrap:fullscreen .subtitle-overlay .sub-orig,
+.stage-video-wrap:-webkit-full-screen .subtitle-overlay .sub-orig {
+  font-size: clamp(17.5px, 1.55vw, 24.5px);
+}
+
+.sub-s .stage-video-wrap:fullscreen .subtitle-overlay .sub-zh,
+.sub-s .stage-video-wrap:-webkit-full-screen .subtitle-overlay .sub-zh,
+.sub-s .stage-video-wrap:fullscreen .subtitle-overlay .sub-orig:only-child,
+.sub-s .stage-video-wrap:-webkit-full-screen .subtitle-overlay .sub-orig:only-child {
+  font-size: clamp(19.5px, 1.78vw, 28px);
+}
+
+.sub-s .stage-video-wrap:fullscreen .subtitle-overlay .sub-orig,
+.sub-s .stage-video-wrap:-webkit-full-screen .subtitle-overlay .sub-orig {
+  font-size: clamp(15px, 1.32vw, 20.5px);
+}
+
+.sub-l .stage-video-wrap:fullscreen .subtitle-overlay .sub-zh,
+.sub-l .stage-video-wrap:-webkit-full-screen .subtitle-overlay .sub-zh,
+.sub-l .stage-video-wrap:fullscreen .subtitle-overlay .sub-orig:only-child,
+.sub-l .stage-video-wrap:-webkit-full-screen .subtitle-overlay .sub-orig:only-child {
+  font-size: clamp(27px, 2.55vw, 42px);
+}
+
+.sub-l .stage-video-wrap:fullscreen .subtitle-overlay .sub-orig,
+.sub-l .stage-video-wrap:-webkit-full-screen .subtitle-overlay .sub-orig {
+  font-size: clamp(20.5px, 1.88vw, 30px);
 }
 
 .audio-stage {

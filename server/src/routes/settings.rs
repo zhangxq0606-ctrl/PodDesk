@@ -117,6 +117,41 @@ pub async fn logout_youtube(State(state): State<Arc<AppState>>) -> Response {
     }
 }
 
+pub async fn get_bilibili_auth(State(state): State<Arc<AppState>>) -> Response {
+    let Some(bridge) = state.yt_login.clone() else {
+        return Json(json!({ "supported": false, "signedIn": false })).into_response();
+    };
+    let signed_in = tokio::task::spawn_blocking(move || bridge.is_bilibili_signed_in())
+        .await
+        .unwrap_or(false);
+    Json(json!({ "supported": true, "signedIn": signed_in })).into_response()
+}
+
+pub async fn open_bilibili_login(State(state): State<Arc<AppState>>) -> Response {
+    let Some(bridge) = state.yt_login.clone() else {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "当前仅桌面端支持内置 B站扫码登录窗口，请使用下方的 cookies.txt 导入",
+        );
+    };
+    match tokio::task::spawn_blocking(move || bridge.open_bilibili_login()).await {
+        Ok(Ok(())) => Json(json!({ "ok": true })).into_response(),
+        Ok(Err(e)) => api_error(StatusCode::INTERNAL_SERVER_ERROR, e),
+        Err(e) => api_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
+}
+
+pub async fn logout_bilibili(State(state): State<Arc<AppState>>) -> Response {
+    let Some(bridge) = state.yt_login.clone() else {
+        return Json(json!({ "ok": true, "signedIn": false })).into_response();
+    };
+    match tokio::task::spawn_blocking(move || bridge.sign_out_bilibili()).await {
+        Ok(Ok(())) => Json(json!({ "ok": true, "signedIn": false })).into_response(),
+        Ok(Err(e)) => api_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+        Err(e) => api_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
+}
+
 pub async fn network_check(State(state): State<Arc<AppState>>) -> Response {
     let wv_status = state
         .yt_login

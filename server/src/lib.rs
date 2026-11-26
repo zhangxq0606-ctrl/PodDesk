@@ -1,6 +1,7 @@
 pub mod agents;
 pub mod asr;
 pub mod asr_context;
+pub mod bilibili;
 pub mod cloud;
 pub mod db;
 pub mod feeds;
@@ -24,12 +25,24 @@ use tokio::net::TcpListener;
 pub const DEFAULT_PORT: u16 = 14327;
 const PORT_SPAN: u16 = 20;
 
-/// Desktop-shell hook for in-app YouTube sign-in & cookie jar export without linking `tauri` into `server`.
+/// Desktop-shell hook for in-app sign-in & cookie jar export without linking `tauri` into `server`.
 pub trait YtLoginBridge: Send + Sync {
     fn is_signed_in(&self) -> bool;
     fn open_login(&self) -> std::result::Result<(), String>;
     fn sign_out(&self) -> std::result::Result<(), String>;
     fn export_cookie_jar(&self) -> Option<String>;
+    fn is_bilibili_signed_in(&self) -> bool {
+        false
+    }
+    fn open_bilibili_login(&self) -> std::result::Result<(), String> {
+        Err("当前仅桌面端支持内置 B站扫码登录窗口".into())
+    }
+    fn sign_out_bilibili(&self) -> std::result::Result<(), String> {
+        Ok(())
+    }
+    fn export_bilibili_cookie_jar(&self) -> Option<String> {
+        None
+    }
     fn webview_proxy_status(&self) -> &'static str {
         "system"
     }

@@ -141,9 +141,32 @@ fn ends_sentence(text: &str) -> bool {
     text.trim_end().ends_with(['.', '?', '!', '。', '？', '！', '…', '"', '”'])
 }
 
+fn is_mostly_cjk(segments: &[Segment]) -> bool {
+    let mut total = 0usize;
+    let mut cjk = 0usize;
+    for s in segments.iter().take(24) {
+        for ch in s.text.chars() {
+            if !ch.is_whitespace() {
+                total += 1;
+                if ('\u{4e00}'..='\u{9fff}').contains(&ch) {
+                    cjk += 1;
+                }
+            }
+        }
+    }
+    cjk * 4 >= total.max(1)
+}
+
 pub fn resegment(segments: Vec<Segment>) -> Vec<Segment> {
     let punctuated = segments.iter().filter(|s| ends_sentence(&s.text)).count() * 6 >= segments.len().max(1);
-    let (max_len, max_secs) = if punctuated { (320, 30.0) } else { (180, 12.0) };
+    let unpunctuated_cjk = !punctuated && is_mostly_cjk(&segments);
+    let (max_len, max_secs) = if punctuated {
+        (320, 30.0)
+    } else if unpunctuated_cjk {
+        (24, 5.5)
+    } else {
+        (180, 12.0)
+    };
     let mut out: Vec<Segment> = Vec::new();
     let mut cur: Option<Segment> = None;
     for s in segments {
@@ -151,7 +174,12 @@ pub fn resegment(segments: Vec<Segment>) -> Vec<Segment> {
             Some(c) => {
                 let gap = s.start - c.end;
                 let cjk = s.text.chars().next().is_some_and(|ch| ch > '\u{2e80}');
-                let too_long = c.text.chars().count() > max_len || s.end - c.start > max_secs;
+                let next_len = c.text.chars().count() + s.text.chars().count() + usize::from(!cjk);
+                let too_long = if unpunctuated_cjk {
+                    next_len > max_len || s.end - c.start > max_secs
+                } else {
+                    c.text.chars().count() > max_len || s.end - c.start > max_secs
+                };
                 if (punctuated && ends_sentence(&c.text) && c.end - c.start > 1.2) || gap > 2.0 || too_long {
                     out.push(cur.take().unwrap());
                     cur = Some(s);
@@ -265,5 +293,17 @@ mod tests {
         let m = resegment(segs);
         assert_eq!(m.len(), 2);
         assert_eq!(m[0].text, "so what we found is that it works");
+    }
+
+    #[test]
+    fn keeps_unpunctuated_chinese_segments_compact() {
+        let segs = vec![
+            Segment { start: 0.0, end: 2.0, text: "今天这些视频我们就来详细了解".into() },
+            Segment { start: 2.0, end: 4.0, text: "一下IP地址的那些事如果只有一台电脑".into() },
+            Segment { start: 4.0, end: 6.0, text: "那么这台电脑的数据就会全部存储".into() },
+        ];
+        let m = resegment(segs);
+        assert_eq!(m.len(), 3);
+        assert!(m.iter().all(|s| s.text.chars().count() <= 24));
     }
 }

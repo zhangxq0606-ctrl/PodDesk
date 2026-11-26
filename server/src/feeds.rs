@@ -15,6 +15,8 @@ pub enum Source {
     Xiaoyuzhou(String),
     YouTubeVideo(String),
     XiaoyuzhouEpisode(String),
+    BilibiliVideo(crate::bilibili::BiliTarget),
+    DirectMedia(String),
 }
 
 fn re(p: &str) -> Regex {
@@ -37,9 +39,134 @@ pub fn youtube_video_id(url: &str) -> Option<String> {
         .map(|c| c[1].to_string())
 }
 
-/// Works out what a pasted link points at. May fetch a page (YouTube handles, Apple Podcasts ids, HTML pages).
+pub fn extract_pasted_url(input: &str) -> String {
+    let trimmed = input.trim();
+    if trimmed.contains(char::is_whitespace) {
+        if let Some(m) = re(r#"https?://[^\s<>"'）)】\]]+"#).find(trimmed) {
+            return m.as_str().trim_end_matches(['.', ',', ';', '。', '，']).to_string();
+        }
+    }
+    trimmed.to_string()
+}
+
+pub fn is_direct_media_url(url: &str) -> bool {
+    let clean = url.trim().split(['?', '#']).next().unwrap_or(url).to_ascii_lowercase();
+    [".mp3", ".m4a", ".aac", ".wav", ".flac", ".ogg", ".opus", ".mp4", ".webm", ".mov", ".mkv"]
+        .iter()
+        .any(|ext| clean.ends_with(ext))
+}
+
+fn meta_content(html: &str, prop: &str) -> Option<String> {
+    let p1 = format!(r#"(?i)<meta[^>]+(?:property|name)=["']{}["'][^>]+content=["']([^"']+)["']"#, regex::escape(prop));
+    let p2 = format!(r#"(?i)<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["']{}["']"#, regex::escape(prop));
+    re(&p1)
+        .captures(html)
+        .or_else(|| re(&p2).captures(html))
+        .map(|c| crate::transcript::decode_entities(&c[1]).trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+pub fn parse_spotify_show_query(page_url: &str, html: &str) -> Option<(Option<String>, Option<String>)> {
+    if page_url.contains("/episode/") {
+        if let Some(c) = re(r#"https://open\.spotify\.com/show/[A-Za-z0-9]+"#).find(html) {
+            return Some((None, Some(c.as_str().to_string())));
+        }
+        if let Some(c) = re(r#""/show/([A-Za-z0-9]+)""#).captures(html) {
+            return Some((None, Some(format!("https://open.spotify.com/show/{}", &c[1]))));
+        }
+        if let Some(raw) = re(r"(?is)<title>(.*?)</title>").captures(html).map(|c| crate::transcript::decode_entities(&c[1])) {
+            let clean = raw.trim().strip_suffix("| Podcast on Spotify").unwrap_or(&raw).trim();
+            if let Some((_, show)) = clean.rsplit_once(" - ") {
+                let s = show.trim().to_string();
+                if !s.is_empty() {
+                    return Some((Some(s), None));
+                }
+            }
+        }
+    }
+    if let Some(og) = meta_content(html, "og:title") {
+        let cleaned = og.strip_suffix("| Podcast on Spotify").unwrap_or(&og).trim().to_string();
+        if !cleaned.is_empty() {
+            return Some((Some(cleaned), None));
+        }
+    }
+    re(r"(?is)<title>(.*?)</title>")
+        .captures(html)
+        .map(|c| {
+            let raw = crate::transcript::decode_entities(&c[1]);
+            raw.trim().strip_suffix("| Podcast on Spotify").unwrap_or(raw.trim()).trim().to_string()
+        })
+        .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("Spotify"))
+        .map(|s| (Some(s), None))
+}
+
+async fn resolve_apple_podcast_id(id: &str) -> Result<Source> {
+    let v: serde_json::Value = net::client()
+        .get(format!("https://itunes.apple.com/lookup?id={id}&entity=podcast"))
+        .send()
+        .await?
+        .json()
+        .await?;
+    let feed = v["results"][0]["feedUrl"]
+        .as_str()
+        .ok_or_else(|| anyhow!("这档节目没有公开 RSS（可能是 Apple 独家）"))?;
+    if is_xyzfm_feed(feed) {
+        if let Ok(html) = net::get_text(&format!("https://podcasts.apple.com/podcast/id{id}")).await {
+            if let Some(c) = re(r"xiaoyuzhoufm\.com/podcast/([0-9a-f]{24})").captures(&html) {
+                return Ok(Source::Xiaoyuzhou(format!("https://www.xiaoyuzhoufm.com/podcast/{}", &c[1])));
+            }
+        }
+    }
+    Ok(Source::Feed(feed.to_string()))
+}
+
+async fn resolve_spotify(url: &str) -> Result<Source> {
+    let res = net::get(url).await?;
+    let final_url = res.url().as_str().to_string();
+    let html = res.text().await?;
+    let parsed = parse_spotify_show_query(&final_url, &html);
+    let show_name = match parsed {
+        Some((Some(name), _)) => name,
+        Some((None, Some(show_url))) => {
+            let show_html = net::get_text(&show_url).await?;
+            match parse_spotify_show_query(&show_url, &show_html) {
+                Some((Some(name), _)) => name,
+                _ => return Err(anyhow!("未能从 Spotify 页面识别节目名称")),
+            }
+        }
+        _ => return Err(anyhow!("未能从 Spotify 页面识别节目名称（可能需要登录或为平台独家）")),
+    };
+    let mut best: Option<SearchResult> = None;
+    for country in ["us", "cn"] {
+        if let Ok(list) = search_apple(&show_name, country).await {
+            let norm = |s: &str| s.trim().to_lowercase();
+            let target = norm(&show_name);
+            if let Some(hit) = list
+                .iter()
+                .find(|r| norm(&r.title) == target)
+                .or_else(|| list.first())
+                .cloned()
+            {
+                best = Some(hit);
+                break;
+            }
+        }
+    }
+    let Some(hit) = best else {
+        return Err(anyhow!("未能从公开播客目录匹配到「{show_name}」的 RSS（可能是 Spotify 独家节目）"));
+    };
+    if hit.feed_url.contains("podcasts.apple.com") {
+        if let Some(c) = re(r"/id(\d+)").captures(&hit.feed_url) {
+            return resolve_apple_podcast_id(&c[1]).await;
+        }
+    }
+    Ok(Source::Feed(hit.feed_url))
+}
+
+/// Works out what a pasted link points at. May fetch a page (YouTube handles, Apple Podcasts ids, Bilibili, Spotify, HTML pages).
 pub async fn resolve(input: &str) -> Result<Source> {
-    let input = input.trim();
+    let extracted = extract_pasted_url(input);
+    let input = extracted.trim();
     if input.is_empty() {
         return Err(anyhow!("请粘贴链接"));
     }
@@ -50,6 +177,13 @@ pub async fn resolve(input: &str) -> Result<Source> {
     } else {
         format!("https://{input}")
     };
+    if let Some(target) = crate::bilibili::parse_url(&url) {
+        return Ok(Source::BilibiliVideo(target));
+    }
+    if crate::bilibili::is_short_url(&url) {
+        let target = crate::bilibili::resolve_short_url(&url).await?;
+        return Ok(Source::BilibiliVideo(target));
+    }
     if let Some(id) = youtube_video_id(&url) {
         if !url.contains("list=") || url.contains("watch?v=") {
             return Ok(Source::YouTubeVideo(id));
@@ -79,23 +213,10 @@ pub async fn resolve(input: &str) -> Result<Source> {
             .captures(&url)
             .map(|c| c[1].to_string())
             .ok_or_else(|| anyhow!("无法识别 Apple Podcasts 链接"))?;
-        let v: serde_json::Value = net::client()
-            .get(format!("https://itunes.apple.com/lookup?id={id}&entity=podcast"))
-            .send()
-            .await?
-            .json()
-            .await?;
-        let feed = v["results"][0]["feedUrl"]
-            .as_str()
-            .ok_or_else(|| anyhow!("这档节目没有公开 RSS（可能是 Apple 独家）"))?;
-        if is_xyzfm_feed(feed) {
-            if let Ok(html) = net::get_text(&format!("https://podcasts.apple.com/podcast/id{id}")).await {
-                if let Some(c) = re(r"xiaoyuzhoufm\.com/podcast/([0-9a-f]{24})").captures(&html) {
-                    return Ok(Source::Xiaoyuzhou(format!("https://www.xiaoyuzhoufm.com/podcast/{}", &c[1])));
-                }
-            }
-        }
-        return Ok(Source::Feed(feed.to_string()));
+        return resolve_apple_podcast_id(&id).await;
+    }
+    if url.contains("open.spotify.com/") || url.contains("spotify.link/") {
+        return resolve_spotify(&url).await;
     }
     if url.contains("xiaoyuzhoufm.com/podcast/") {
         return Ok(Source::Xiaoyuzhou(url));
@@ -103,10 +224,24 @@ pub async fn resolve(input: &str) -> Result<Source> {
     if url.contains("xiaoyuzhoufm.com/episode/") {
         return Ok(Source::XiaoyuzhouEpisode(url));
     }
+    if is_direct_media_url(&url) {
+        return Ok(Source::DirectMedia(url));
+    }
     if is_direct_feed(&url) {
         return Ok(Source::Feed(url));
     }
-    let body = net::get_text(&url).await?;
+    let res = net::get(&url).await?;
+    let final_url = res.url().as_str().to_string();
+    let content_type = res
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if content_type.starts_with("audio/") || content_type.starts_with("video/") {
+        return Ok(Source::DirectMedia(final_url));
+    }
+    let body = res.text().await?;
     if is_xyzfm_feed(&url) && body.contains("403 Forbidden") {
         return Err(anyhow!("小宇宙的 RSS 不对外开放，请粘贴小宇宙 App 里分享的节目链接"));
     }
@@ -119,7 +254,9 @@ pub async fn resolve(input: &str) -> Result<Source> {
         let abs = reqwest::Url::parse(&url)?.join(&href)?;
         return Ok(Source::Feed(abs.to_string()));
     }
-    Err(anyhow!("没有识别出订阅源。支持 YouTube 频道/视频、Apple Podcasts、小宇宙和 RSS 链接"))
+    Err(anyhow!(
+        "没有识别出订阅源。支持 YouTube、B站视频、Apple/Spotify 播客、小宇宙、RSS 和音视频直链"
+    ))
 }
 
 pub fn is_direct_feed(url: &str) -> bool {
@@ -381,7 +518,7 @@ pub async fn fetch_show(feed_url: &str, kind: &str) -> Result<(Show, Vec<Episode
 
 // ---- search ---------------------------------------------------------------------------------------
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SearchResult {
     pub title: String,
@@ -537,5 +674,29 @@ mod tests {
     fn video_ids() {
         assert_eq!(youtube_video_id("https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=1").as_deref(), Some("dQw4w9WgXcQ"));
         assert_eq!(youtube_video_id("https://youtu.be/dQw4w9WgXcQ").as_deref(), Some("dQw4w9WgXcQ"));
+    }
+
+    #[test]
+    fn direct_media_share_text_and_spotify_meta() {
+        assert!(is_direct_media_url("https://cdn.example.com/talk/ep12.mp3?token=1"));
+        assert!(is_direct_media_url("https://cdn.example.com/video/clip.MP4"));
+        assert!(!is_direct_media_url("https://example.com/feed.xml"));
+
+        assert_eq!(
+            extract_pasted_url("【罗翔老师讲刑法】 https://b23.tv/abc123。"),
+            "https://b23.tv/abc123"
+        );
+
+        let show_html = r#"<html><head><meta property="og:title" content="The Joe Rogan Experience"><title>The Joe Rogan Experience | Podcast on Spotify</title></head></html>"#;
+        assert_eq!(
+            parse_spotify_show_query("https://open.spotify.com/show/4rOoJ6Egrf8K2IrywzwOMk", show_html),
+            Some((Some("The Joe Rogan Experience".into()), None))
+        );
+
+        let ep_html = r#"<html><head><title>Ep 100 - Acquired | Podcast on Spotify</title></head></html>"#;
+        assert_eq!(
+            parse_spotify_show_query("https://open.spotify.com/episode/abc", ep_html),
+            Some((Some("Acquired".into()), None))
+        );
     }
 }

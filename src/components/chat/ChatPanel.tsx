@@ -3,8 +3,10 @@ import { ArrowDown, ArrowUp, Check, Clock, Copy, Pencil, RefreshCw, SlidersHoriz
 import { useShallow } from "zustand/react/shallow";
 import { countPromptUse, QUICK_PROMPTS, STARTER_PROMPT_IDS } from "../../lib/ai";
 import type { Episode } from "../../lib/api";
+import { api } from "../../lib/api";
 import { ask } from "../../lib/confirm";
 import { clock } from "../../lib/format";
+import { isBilibiliEpisode } from "../../lib/videoSource";
 import {
   loadEpisodeChat,
   saveEpisodeChat,
@@ -89,9 +91,12 @@ const PresenceBar = memo(function PresenceBar({
 
 export function ChatPanel({ ep }: { ep: Episode }) {
   const transcript = useJobs((s) => s.transcripts[ep.id]);
+  const officialError = useJobs((s) => s.officialError[ep.id]);
   const chatJob = useJobs((s) => s.chats[ep.id]);
   const draftAsk = useJobs((s) => s.draftAsk);
   const {
+    health,
+    notify,
     seekToEpisode,
     openSettings,
     getChatProvider,
@@ -100,6 +105,8 @@ export function ChatPanel({ ep }: { ep: Episode }) {
     chatInstructionEnabled,
   } = useStore(
     useShallow((s) => ({
+      health: s.health,
+      notify: s.notify,
       seekToEpisode: s.seekToEpisode,
       openSettings: s.openSettings,
       getChatProvider: s.getChatProvider,
@@ -253,7 +260,29 @@ export function ChatPanel({ ep }: { ep: Episode }) {
               </div>
             </div>
 
-            {!transcript && <p className="setup-note">先获取或生成字幕后，即可开始提问。</p>}
+            {!transcript &&
+              (isBilibiliEpisode(ep) && /登录后|扫码登录/i.test(officialError ?? "") ? (
+                <div className="setup-note">
+                  <span>未登录 B站暂无法读取官方或 AI 字幕，登录后可自动获取。</span>
+                  <button
+                    type="button"
+                    className="btn sm primary"
+                    onClick={() => {
+                      if (health?.biliLoginSupported) {
+                        void api.openBilibiliLogin().catch((err) => {
+                          notify(err instanceof Error ? err.message : "打开 B站登录窗口失败", false);
+                        });
+                      } else {
+                        openSettings("network");
+                      }
+                    }}
+                  >
+                    {health?.biliLoginSupported ? "扫码登录 B站" : "去设置 Cookie"}
+                  </button>
+                </div>
+              ) : (
+                <p className="setup-note">先获取或生成字幕后，即可开始提问。</p>
+              ))}
 
             {!ready && (
               <div className="setup-note">

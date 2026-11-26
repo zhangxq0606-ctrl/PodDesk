@@ -10,6 +10,7 @@ import {
   Ellipsis,
   Languages,
   Loader2,
+  LogIn,
   Mic,
   RefreshCw,
   RotateCcw,
@@ -19,8 +20,9 @@ import {
 } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { countTranslated, isMostlyChinese, type EpisodeContext } from "../lib/ai";
-import { type Episode, type Segment } from "../lib/api";
+import { api, type Episode, type Segment } from "../lib/api";
 import { ask } from "../lib/confirm";
+import { isBilibiliEpisode } from "../lib/videoSource";
 import { clock } from "../lib/format";
 import {
   fetchOfficialSub,
@@ -265,19 +267,54 @@ function NoTranscriptCard({ ep }: { ep: Episode }) {
   const officialStatus = useJobs((s) => s.officialStatus[ep.id] ?? "idle");
   const officialError = useJobs((s) => s.officialError[ep.id]);
   const asrJob = useJobs((s) => s.asr[ep.id]);
-  const { asrChoice, asrLang, asrStatus, asrKeyStatus, keyStatus, savePrefs, openSettings, setImportOpen } = useStore(
-    useShallow((s) => ({
-      asrChoice: s.prefs.asrChoice,
-      asrLang: s.prefs.asrLang,
-      asrStatus: s.asrStatus,
-      asrKeyStatus: s.asrKeyStatus,
-      keyStatus: s.keyStatus,
-      savePrefs: s.savePrefs,
-      openSettings: s.openSettings,
-      setImportOpen: s.setImportOpen,
-    })),
-  );
+  const { health, asrChoice, asrLang, asrStatus, asrKeyStatus, keyStatus, savePrefs, openSettings, setImportOpen, notify } =
+    useStore(
+      useShallow((s) => ({
+        health: s.health,
+        asrChoice: s.prefs.asrChoice,
+        asrLang: s.prefs.asrLang,
+        asrStatus: s.asrStatus,
+        asrKeyStatus: s.asrKeyStatus,
+        keyStatus: s.keyStatus,
+        savePrefs: s.savePrefs,
+        openSettings: s.openSettings,
+        setImportOpen: s.setImportOpen,
+        notify: s.notify,
+      })),
+    );
   const [showOptions, setShowOptions] = useState(false);
+  const [biliSignedIn, setBiliSignedIn] = useState(false);
+  const isBili = isBilibiliEpisode(ep);
+  const biliSupported = !!health?.biliLoginSupported;
+
+  useEffect(() => {
+    if (!isBili) {
+      setBiliSignedIn(false);
+      return;
+    }
+    let alive = true;
+    const syncBiliAuth = () => {
+      if (!biliSupported) return;
+      void api
+        .getBilibiliAuth()
+        .then((res) => {
+          if (alive) setBiliSignedIn(res.signedIn);
+        })
+        .catch(() => {});
+    };
+    syncBiliAuth();
+    const onBiliLoginChanged = () => {
+      syncBiliAuth();
+      if (!useJobs.getState().transcripts[ep.id]) {
+        void fetchOfficialSub(ep, false);
+      }
+    };
+    window.addEventListener("poddesk:bili-login-changed", onBiliLoginChanged);
+    return () => {
+      alive = false;
+      window.removeEventListener("poddesk:bili-login-changed", onBiliLoginChanged);
+    };
+  }, [ep, isBili, biliSupported]);
 
   if (asrJob?.running) {
     const pct = typeof asrJob.pct === "number" ? Math.round(asrJob.pct * 100) : null;
@@ -348,18 +385,21 @@ function NoTranscriptCard({ ep }: { ep: Episode }) {
     !!asrKeyStatus[cloudPreset.id] ||
     (cloudPreset.id === "deepseek" && !!keyStatus.deepseek);
 
+  const needBiliAuth = isBili && (!biliSignedIn || /登录后|扫码登录/i.test(officialError ?? ""));
   return (
     <div className="panel-empty gt-fade-in">
       <div className="gen-card">
         <WaveToTextArt />
         <h3 className="gen-title">这一集还没有字幕</h3>
         <p className="muted small">
-          {isCloud
-            ? `使用「${cloudPreset?.name ?? "云端 ASR"}」转写，速度更快（音频会发送至所选服务）。`
-            : `使用本机「${selectedLocalModel?.name ?? "离线模型"}」（${variantTag}）转写，音频不出本机。`}
+          {needBiliAuth
+            ? "未登录 B站暂无法获取官方与自带 AI 字幕，扫码后可自动拉取并跳过转写。"
+            : isCloud
+              ? `使用「${cloudPreset?.name ?? "云端 ASR"}」转写，速度更快（音频会发送至所选服务）。`
+              : `使用本机「${selectedLocalModel?.name ?? "离线模型"}」（${variantTag}）转写，音频不出本机。`}
         </p>
 
-        {officialError && <p className="error-text small">官方字幕读取失败：{officialError}</p>}
+        {!needBiliAuth && officialError && <p className="error-text small">官方字幕读取失败：{officialError}</p>}
         {asrJob?.error && (
           <div className="setup-note">
             <span>{asrJob.error}</span>
@@ -370,10 +410,28 @@ function NoTranscriptCard({ ep }: { ep: Episode }) {
         )}
 
         <div className="row-actions center" style={{ marginTop: 6 }}>
-          {hasMedia && (
+          {needBiliAuth && (
             <button
               type="button"
               className="btn primary"
+              onClick={() => {
+                if (biliSupported) {
+                  void api.openBilibiliLogin().catch((err) => {
+                    notify(err instanceof Error ? err.message : "打开 B站登录窗口失败", false);
+                  });
+                } else {
+                  openSettings("network");
+                }
+              }}
+            >
+              <LogIn size={15} />
+              <span>{biliSupported ? "扫码登录 B站" : "去设置配置 Cookie"}</span>
+            </button>
+          )}
+          {hasMedia && (
+            <button
+              type="button"
+              className={needBiliAuth ? "btn" : "btn primary"}
               onClick={() => {
                 if (!isCloud && !localReady) {
                   openSettings("asr");
@@ -396,7 +454,7 @@ function NoTranscriptCard({ ep }: { ep: Episode }) {
               </span>
             </button>
           )}
-          {(ep.videoId || ep.transcriptUrl) && (
+          {(ep.videoId || ep.transcriptUrl) && !needBiliAuth && (
             <button type="button" className="btn" onClick={() => void fetchOfficialSub(ep, false)}>
               <RefreshCw size={14} /> 重试官方字幕
             </button>

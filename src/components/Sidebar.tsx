@@ -33,7 +33,7 @@ import { BrandMark } from "./Illustrations";
 import { isVideoMediaUrl } from "./Players";
 
 const LINK_RE =
-  /^(https?:\/\/|@)|youtube\.com|youtu\.be|xiaoyuzhoufm\.com|feed\.xyzfm\.space|podcasts\.apple\.com|\.(xml|rss)\b/i;
+  /^(https?:\/\/|@)|https?:\/\/|youtube\.com|youtu\.be|bilibili\.com|b23\.tv|bili2233\.cn|open\.spotify\.com|spotify\.link|xiaoyuzhoufm\.com|feed\.xyzfm\.space|podcasts\.apple\.com|\.(xml|rss|mp3|m4a|aac|wav|flac|ogg|opus|mp4|webm|mov|mkv)(?:$|[?#\s])/i;
 
 function looksLikeLink(text: string): boolean {
   return LINK_RE.test(text.trim());
@@ -504,7 +504,7 @@ export function TopBar({ rightExtra }: { rightExtra?: ReactNode }) {
           <input
             ref={inputRef}
             value={q}
-            placeholder="粘贴 YouTube / 小宇宙 / RSS 链接，或搜索节目名 (Ctrl+L)"
+            placeholder="粘贴 YouTube / B站 / 小宇宙 / Spotify / RSS 链接，或搜索节目名 (Ctrl+L)"
             spellCheck={false}
             autoCapitalize="off"
             autoCorrect="off"
@@ -662,7 +662,7 @@ export function MiniPlayer() {
       >
         <span className="mini-cover-wrap">
           {current.cover ? (
-            <img className="mini-cover" src={current.cover} alt="" />
+            <img className="mini-cover" src={current.cover} alt="" referrerPolicy="no-referrer" />
           ) : (
             <span className="mini-cover cover-fallback">{current.title.slice(0, 1).toUpperCase()}</span>
           )}
@@ -855,9 +855,10 @@ export function SubscribeModal() {
               <div className="sub-modal-foot-hint">
                 <div className="sub-modal-sources">
                   <span className="pill-tag">YouTube</span>
+                  <span className="pill-tag">B站单集</span>
                   <span className="pill-tag">小宇宙</span>
-                  <span className="pill-tag">Apple Podcasts</span>
-                  <span className="pill-tag">RSS</span>
+                  <span className="pill-tag">Apple / Spotify</span>
+                  <span className="pill-tag">RSS / 音视频直链</span>
                 </div>
                 <span className="muted small">{isLink ? "回车打开或订阅" : "回车确认"}</span>
               </div>

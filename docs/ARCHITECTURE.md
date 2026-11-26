@@ -53,7 +53,7 @@
 - **Rust 稳态执行层（低频改动）**
   - `server / routes`：托管编译后的前端静态文件，路由按域拆分为 `server/src/routes/{mod,settings,shows,episodes,ai,asr}.rs`，提供毒锁容错（`db_lock`）、活跃后台任务计数与优雅退出管控，并自动顺延探测可用 `localhost` 端口。
   - `net`：自动读取系统代理（Windows 注册表 / macOS `scutil` / 环境变量）及手动配置并透传 `HTTPS_PROXY`；提供 GitHub 下载链接镜像回退序列（支持 `githubMirror` 自定义镜像前缀，默认直连失败后自动切换 `ghfast.top` / `gh-proxy.com`）。
-  - `feeds / youtube`：统一解析 YouTube 频道（`UULF` 过滤 Shorts）/单集、Apple Podcasts、小宇宙与通用 RSS，以及本地音视频与纯文本/`.srt`/`.vtt` 字幕导入；抓取 YouTube InnerTube 字幕与 `<podcast:transcript>`；支持按需读取本地配置的 `cookies.txt` 传给 `yt-dlp`。
+  - `feeds / youtube / bilibili`：统一解析 YouTube 频道（`UULF` 过滤 Shorts）/单集、B站单集（长链/`b23.tv` 短链/`?p=N` 分集，WBI 签名拉取官方及 AI 字幕，`upos-*` 优先 CDN 排序，复用桌面登录或本地 `cookies.txt`）、Apple Podcasts、Spotify 播客转查公开 RSS、小宇宙、通用 RSS 与在线音视频直链，以及本地音视频与纯文本/`.srt`/`.vtt` 字幕导入；抓取 YouTube InnerTube 字幕与 `<podcast:transcript>`；支持按需读取本地配置的 `cookies.txt` 传给 `yt-dlp` 与 B站解析。
   - `asr / cloud / transcript`：纯 Rust `symphonia` 解码、`asr_context` 热词清洗、外调 `CrispASR`（`Qwen3-ASR` / `SenseVoice`）离线转写（支持多候选镜像下载重试与失效直链清除重写）、云端 ASR 代理、碎句合并与幻觉过滤（不含 `whisper-rs`）。
   - `llm / agents`：OpenAI/Anthropic 兼容流式代理（支持 `quick` 模式按厂商自动关闭多余思考、400/422 降级重试、`CancelOnDropStream` 断连收敛与 `/api/llm/metrics` 耗时追踪）；5 种本机 CLI Agent 探测、进程级无工具只读隔离、ACP 空闲会话预热、子模型校验与长连接保活（原 `translate.rs` 谷歌翻译已于 `v0.2.1` 移除）。
   - `db`：本地 SQLite 7 表持久化（`shows`、`episodes`、`transcripts`、`tr_cache`、`listens`、`settings`、`blobs`），启用 WAL、16 MB 页缓存与 `(show_id, progress)` 查询索引。
@@ -70,9 +70,9 @@
 - **REST JSON & 媒体接口**：
   - 基础、设置与应用控制：`GET /api/health`（含 `githubMirror`、`activeJobs`）、`GET/POST /api/settings`（含 `proxy`、`githubMirror` 等）、`GET /api/network/check`（检测代理/YouTube/流节点/`yt-dlp` 与桌面 WebView 代理通路）、`GET /api/jobs/active`、`POST /api/app/quit`、`GET/POST /api/keys/{provider}`（只返回 `{ hasKey }`）、`GET/POST /api/cookies`（只返回 `{ hasCookies }`）。
   - 检索与订阅：`GET /api/search`、`GET /api/shows`、`POST /api/shows/refresh-all`、`DELETE /api/shows/{id}`、`POST /api/shows/{id}/refresh`、`POST /api/shows/{id}/load-more`、`POST /api/shows/{id}/mark-all-completed`、`POST /api/subscriptions`。
-  - 单集与媒体：`GET /api/episodes`、`GET /api/episodes/recent`、`GET /api/episodes/{id}`、`DELETE /api/episodes/{id}`、`POST /api/episodes/{id}/progress`、`POST /api/episodes/{id}/completed`、`GET /api/episodes/{id}/stream-url`、`POST /api/episodes/import-text`、`POST /api/episodes/import-media`（multipart 最高 512 MB）、`GET /api/media/{file}`（支持 HTTP `206` 拖动）。
+  - 单集与媒体：`GET /api/episodes`、`GET /api/episodes/recent`、`GET /api/episodes/{id}`、`DELETE /api/episodes/{id}`、`POST /api/episodes/{id}/progress`、`POST /api/episodes/{id}/completed`、`GET /api/episodes/{id}/stream-url`、`GET /api/episodes/{id}/bili-stream`（B站防盗链 Range 流中转，支持多 CDN 节点与直连/代理回退）、`POST /api/episodes/import-text`、`POST /api/episodes/import-media`（multipart 最高 512 MB）、`GET /api/media/{file}`（支持 HTTP `206` 拖动）。
   - 字幕/翻译/Agent：`GET /api/episodes/{id}/transcript`、`POST /api/episodes/{id}/transcript/official`、`GET/POST /api/episodes/{id}/blobs/{kind}`、`GET /api/asr/models`、`POST /api/asr/probe`、`GET /api/agents`、`POST /api/agents/warm`、`POST /api/agents/probe`、`POST /api/agents/models`、`GET /api/llm/metrics`。
-  - 版本与 YouTube 登录：`GET /api/app/update`、`GET /api/youtube/auth`、`POST /api/youtube/auth/login`、`POST /api/youtube/auth/logout`（桌面壳通过 `desktop/src/ytlogin.rs` 实现 `YtLoginBridge` WebView 登录态，仅运行 `yt-dlp` 时生成并立即清理临时 Netscape Cookie 文件）。
+  - 版本与平台登录：`GET /api/app/update`、`GET/POST /api/youtube/auth*` 与 `GET/POST /api/bilibili/auth*`（桌面壳通过 `desktop/src/ytlogin.rs` 统一实现 YouTube 与 B站 WebView 登录弹窗、状态探测与临时 Netscape Cookie 导出，仅调用时生成并清理临时文件）。
 - **SSE 流式接口与取消**：`POST /api/llm/chat`、`POST /api/asr/models/download`、`POST /api/episodes/{id}/transcribe` 均推送 JSON `data:` 事件（`delta`/`progress`/`done`/`error`），并统一配合 `POST /api/jobs/{id}/cancel` 取消后台任务。
 - **本地凭据边界**：API Key 存入操作系统钥匙串（服务名 `podcast-desk`），可选 `cookies.txt` 仅写本机 `<data_dir>/youtube-cookies.txt`；接口层绝不回传明文凭证。
 
@@ -103,6 +103,6 @@
 |---|---|---|
 | **核心单文件巨石化** | 原 `styles.css`、`server/src/routes.rs`、`ChatPanel.tsx`、`Players.tsx`、`SettingsModal.tsx` 已在第一关分别拆分为 `src/styles/`（11 模块）、`server/src/routes/`（6 模块）及 `src/components/{chat,player,settings}/` | **已治理收口（2026-11-23）**；后续新功能继续按职责域落位，避免单文件再次膨胀 |
 | **长耗时 AI 任务绑定浏览器页签** | 术语抽取、分批字幕精译与流式问答状态完全由前端维护 | 刷新或关闭浏览器页签会中断长播客批量翻译；首版接受此边界，待长播客后台续跑成为刚需时再下沉至 Rust 任务队列 |
-| **前后端测试覆盖失衡** | 后端 Rust 现有 68 项 server 单测通过（含 1 项系统代理忽略测试）与 2 项 desktop 单测通过；前端 Vitest 覆盖 9 个测试文件共 41 条单测（含核心纯逻辑、字幕对齐与 8 套内置主题 WCAG 2.1 对比度/OKLCH 引擎） | **已建立前端护栏（2026-11-23）**；后续新增纯逻辑模块同步补充 `src/lib/__tests__/*.test.ts` |
+| **前后端测试覆盖失衡** | 后端 Rust 现有 75 项 server 单测通过（含 1 项系统代理忽略测试）与 2 项 desktop 单测通过；前端 Vitest 覆盖 10 个测试文件共 43 条单测（含 `videoSource` 多源区分、核心纯逻辑、字幕对齐与 8 套内置主题 WCAG 2.1 对比度/OKLCH 引擎） | **已建立前端护栏（2026-11-23）**；后续新增纯逻辑模块同步补充 `src/lib/__tests__/*.test.ts` |
 | **进程形态缺桌面级收口** | 已落地 `desktop/`（`Tauri v2` 薄桌面壳 + `podcast_desk_core` 共享后端库 + `rust-embed` 内嵌前端）：具备单实例防多开、系统托盘（含后台活跃任务退出二次保护）、窗口状态持久化（最小 `720×560`）、VC++ 运行库随包分发与 NSIS 安装包（暂未购买商业代码签名与启用 OTA 热更新），并已完成第二关 UI 质感与 8 套主题整合打包 | **已收口（2026-11-23）**；暂不引入商业签名费用 |
 | **外部 AI 助手反向接入（MCP）** | 目前仅支持工作台单向调用本机 CLI Agent；`podcast_desk_core` 已独立成库且含完整 SQLite 与 AI 能力，具备零重复实现抽为无头 MCP Server 的基础 | **延后至二期**：待知识沉淀/Obsidian 联动展开时按需新增本地 MCP 入口，暂不引入独立 CLI 安装器 |

@@ -132,6 +132,7 @@ pub fn router(state: Arc<AppState>, dist_dir: Option<PathBuf>) -> Router {
         .route("/api/episodes/{id}/transcript/official", post(episodes::fetch_official_transcript))
         .route("/api/episodes/{id}/transcribe", post(asr::transcribe_episode))
         .route("/api/episodes/{id}/stream-url", get(episodes::episode_stream_url))
+        .route("/api/episodes/{id}/bili-stream", get(episodes::bili_media_proxy))
         .route("/api/episodes/{id}/blobs/{kind}", get(episodes::get_blob).post(episodes::set_blob))
         .route("/api/asr/models", get(asr::asr_models))
         .route("/api/asr/models/download", post(asr::download_asr_models))
@@ -140,6 +141,9 @@ pub fn router(state: Arc<AppState>, dist_dir: Option<PathBuf>) -> Router {
         .route("/api/youtube/auth", get(settings::get_youtube_auth))
         .route("/api/youtube/auth/login", post(settings::open_youtube_login))
         .route("/api/youtube/auth/logout", post(settings::logout_youtube))
+        .route("/api/bilibili/auth", get(settings::get_bilibili_auth))
+        .route("/api/bilibili/auth/login", post(settings::open_bilibili_login))
+        .route("/api/bilibili/auth/logout", post(settings::logout_bilibili))
         .route("/api/network/check", get(settings::network_check))
         .route("/api/agents", get(ai::detect_agents))
         .route("/api/agents/warm", post(ai::warm_agent))
@@ -219,6 +223,7 @@ async fn health(State(state): State<Arc<AppState>>) -> Response {
         "githubMirror": net::github_mirror(),
         "activeJobs": state.active_job_count(),
         "ytLoginSupported": state.yt_login.is_some(),
+        "biliLoginSupported": state.yt_login.is_some(),
     }))
     .into_response()
 }

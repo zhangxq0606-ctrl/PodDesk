@@ -53,6 +53,9 @@ export function NetworkSettingsSection() {
   const [ytSignedIn, setYtSignedIn] = useState(false);
   const [ytLoading, setYtLoading] = useState(false);
   const [ytMsg, setYtMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [biliSignedIn, setBiliSignedIn] = useState(false);
+  const [biliLoading, setBiliLoading] = useState(false);
+  const [biliMsg, setBiliMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [diagRunning, setDiagRunning] = useState(false);
   const [diagReport, setDiagReport] = useState<NetworkReport | null>(null);
   const [diagErr, setDiagErr] = useState<string | null>(null);
@@ -61,6 +64,7 @@ export function NetworkSettingsSection() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const ytSupported = !!health?.ytLoginSupported;
+  const biliSupported = !!health?.biliLoginSupported;
 
   const refreshYtAuth = useCallback(async () => {
     if (!ytSupported) return;
@@ -71,6 +75,16 @@ export function NetworkSettingsSection() {
       /* ignore */
     }
   }, [ytSupported]);
+
+  const refreshBiliAuth = useCallback(async () => {
+    if (!biliSupported) return;
+    try {
+      const res = await api.getBilibiliAuth();
+      setBiliSignedIn(res.signedIn);
+    } catch {
+      /* ignore */
+    }
+  }, [biliSupported]);
 
   useEffect(() => {
     setProxyInput(health?.configuredProxy ?? "");
@@ -83,6 +97,13 @@ export function NetworkSettingsSection() {
     window.addEventListener("poddesk:yt-login-changed", onChanged);
     return () => window.removeEventListener("poddesk:yt-login-changed", onChanged);
   }, [refreshYtAuth]);
+
+  useEffect(() => {
+    void refreshBiliAuth();
+    const onChanged = () => void refreshBiliAuth();
+    window.addEventListener("poddesk:bili-login-changed", onChanged);
+    return () => window.removeEventListener("poddesk:bili-login-changed", onChanged);
+  }, [refreshBiliAuth]);
 
   const runDiagnostics = useCallback(async () => {
     setDiagRunning(true);
@@ -183,6 +204,33 @@ export function NetworkSettingsSection() {
     }
   };
 
+  const handleBiliLogin = async () => {
+    setBiliMsg(null);
+    setBiliLoading(true);
+    try {
+      await api.openBilibiliLogin();
+      setBiliMsg({ ok: true, text: "已打开 B站扫码登录窗口，完成登录后窗口将自动关闭" });
+    } catch (err) {
+      setBiliMsg({ ok: false, text: err instanceof Error ? err.message : "无法打开 B站登录窗口" });
+    } finally {
+      setBiliLoading(false);
+    }
+  };
+
+  const handleBiliLogout = async () => {
+    setBiliMsg(null);
+    setBiliLoading(true);
+    try {
+      await api.logoutBilibili();
+      setBiliSignedIn(false);
+      setBiliMsg({ ok: true, text: "已退出桌面端 B站登录态" });
+    } catch (err) {
+      setBiliMsg({ ok: false, text: err instanceof Error ? err.message : "退出登录失败" });
+    } finally {
+      setBiliLoading(false);
+    }
+  };
+
   const handleCookieFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = "";
@@ -216,7 +264,7 @@ export function NetworkSettingsSection() {
             在 Chrome / Edge 安装开源扩展 <code>Get cookies.txt LOCALLY</code>（不上传任何数据到外部服务器）。
           </li>
           <li>
-            打开 <code>youtube.com</code> 并登录你的 Google 账号（可用副账号）。
+            打开 <code>youtube.com</code> 或 <code>bilibili.com</code> 并登录账号。
           </li>
           <li>
             点击扩展图标选择 <strong>Export</strong> 下载 <code>cookies.txt</code>，再点下方「导入文件」或粘贴到文本框保存即可。
@@ -274,7 +322,7 @@ export function NetworkSettingsSection() {
       <div className="settings-head">
         <div>
           <h4>网络与风控</h4>
-          <p>配置本机代理、下载镜像通道，以及排查 YouTube 连通与登录状态</p>
+          <p>配置本机代理、下载镜像通道，以及排查网络连通与平台账号登录状态</p>
         </div>
       </div>
 
@@ -381,33 +429,60 @@ export function NetworkSettingsSection() {
 
       <section className="s-group">
         <div className="s-group-head">
-          <span className="s-group-title">YouTube 防风控验证</span>
+          <span className="s-group-title">平台账号登录与防风控</span>
         </div>
 
-        {ytSupported && (
+        {(ytSupported || biliSupported) && (
           <div className="s-card">
-            <div className="s-row">
-              <div className="s-row-meta">
-                <span className="s-row-label row-tight">
-                  <span>YouTube 账号登录（推荐）</span>
-                  <span className={`pill ${ytSignedIn ? "ok" : ""}`}>{ytSignedIn ? "已登录" : "未登录"}</span>
-                </span>
-                <span className="s-row-desc">
-                  遇到人机校验时在此登录一次即可；登录态仅保存在本机桌面窗口，单次调用后自动清理临时凭证
-                </span>
-                {ytMsg && <p className={ytMsg.ok ? "ok-text small" : "error-text small"}>{ytMsg.text}</p>}
-              </div>
-              <div className="row-actions">
-                <button type="button" className="btn sm primary" onClick={() => void handleYtLogin()} disabled={ytLoading}>
-                  <LogIn size={13} /> {ytSignedIn ? "切换账号" : "登录 YouTube"}
-                </button>
-                {ytSignedIn && (
-                  <button type="button" className="btn sm" onClick={() => void handleYtLogout()} disabled={ytLoading}>
-                    <LogOut size={13} /> 退出登录
+            {ytSupported && (
+              <div className="s-row">
+                <div className="s-row-meta">
+                  <span className="s-row-label row-tight">
+                    <span>YouTube 账号登录（推荐）</span>
+                    <span className={`pill ${ytSignedIn ? "ok" : ""}`}>{ytSignedIn ? "已登录" : "未登录"}</span>
+                  </span>
+                  <span className="s-row-desc">
+                    遇到人机校验时在此登录一次即可；登录态仅保存在本机桌面窗口，单次调用后自动清理临时凭证
+                  </span>
+                  {ytMsg && <p className={ytMsg.ok ? "ok-text small" : "error-text small"}>{ytMsg.text}</p>}
+                </div>
+                <div className="row-actions">
+                  <button type="button" className="btn sm primary" onClick={() => void handleYtLogin()} disabled={ytLoading}>
+                    <LogIn size={13} /> {ytSignedIn ? "切换账号" : "登录 YouTube"}
                   </button>
-                )}
+                  {ytSignedIn && (
+                    <button type="button" className="btn sm" onClick={() => void handleYtLogout()} disabled={ytLoading}>
+                      <LogOut size={13} /> 退出登录
+                    </button>
+                  )}
+                </div>
               </div>
-            </div>
+            )}
+
+            {biliSupported && (
+              <div className="s-row">
+                <div className="s-row-meta">
+                  <span className="s-row-label row-tight">
+                    <span>B站账号扫码登录（推荐）</span>
+                    <span className={`pill ${biliSignedIn ? "ok" : ""}`}>{biliSignedIn ? "已登录" : "未登录"}</span>
+                  </span>
+                  <span className="s-row-desc">
+                    登录后可直出 B站官方与 AI 字幕（跳过语音转写模型）并解锁更高画质，凭证仅存本机桌面窗口
+                  </span>
+                  {biliMsg && <p className={biliMsg.ok ? "ok-text small" : "error-text small"}>{biliMsg.text}</p>}
+                </div>
+                <div className="row-actions">
+                  <button type="button" className="btn sm primary" onClick={() => void handleBiliLogin()} disabled={biliLoading}>
+                    <LogIn size={13} /> {biliSignedIn ? "切换账号" : "扫码登录 B站"}
+                  </button>
+                  {biliSignedIn && (
+                    <button type="button" className="btn sm" onClick={() => void handleBiliLogout()} disabled={biliLoading}>
+                      <LogOut size={13} /> 退出登录
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         )}
 

@@ -281,16 +281,25 @@ export async function fetchOfficialSub(ep: Episode, silent = false): Promise<voi
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : "获取官方字幕失败";
-    const noSub = /没有|暂无|not found|none/i.test(msg);
+    const needsAuth = /登录后|扫码登录/i.test(msg);
+    const noSub = !needsAuth && /没有|暂无|not found|none/i.test(msg);
     useJobs.setState((s) => ({
-      officialStatus: { ...s.officialStatus, [ep.id]: noSub ? "none" : "error" },
+      officialStatus: { ...s.officialStatus, [ep.id]: noSub || needsAuth ? "none" : "error" },
       officialError: { ...s.officialError, [ep.id]: noSub ? null : msg },
     }));
     if (!silent) {
-      const netLike = !noSub && /网络|超时|代理|连接|proxy|timeout|yt-dlp|cookie|403|429/i.test(msg);
+      const netLike = !noSub && !needsAuth && /网络|超时|代理|连接|proxy|timeout|yt-dlp|cookie|403|429/i.test(msg);
       useStore
         .getState()
-        .notify(msg, false, netLike ? { label: "检查网络", run: () => useStore.getState().openSettings("network") } : undefined);
+        .notify(
+          msg,
+          false,
+          needsAuth
+            ? { label: "设置登录", run: () => useStore.getState().openSettings("network") }
+            : netLike
+              ? { label: "检查网络", run: () => useStore.getState().openSettings("network") }
+              : undefined,
+        );
     }
   }
 }
