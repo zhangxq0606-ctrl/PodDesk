@@ -129,7 +129,7 @@ export function NetworkSettingsSection() {
   const copyDiagReport = async () => {
     if (!diagReport) return;
     const lines = [
-      `PodDesk v${health?.version ?? "0.2.4"} 网络诊断报告`,
+      `PodDesk v${health?.version ?? "0.3.0"} 网络诊断报告`,
       `播放器代理状态: ${webviewProxyLabel(diagReport.webviewProxy)}`,
       `GitHub 镜像: ${diagReport.githubMirror || "自动（直连优先，失败后回退）"}`,
       ...diagReport.checks.map((c) => {

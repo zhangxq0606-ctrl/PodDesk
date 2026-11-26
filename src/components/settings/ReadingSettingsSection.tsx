@@ -150,7 +150,7 @@ export function ReadingSettingsSection() {
             <div className="s-row-meta">
               <span className="s-row-label">PodDesk 桌面工作台</span>
               <span className="s-row-desc">
-                当前版本 <code>v{health?.version ?? "0.2.4"}</code>
+                当前版本 <code>v{health?.version ?? "0.3.0"}</code>
                 {updateInfo && !updateInfo.hasUpdate ? `（已是最新，最近检查 v${updateInfo.latestVersion}）` : ""}
                 {updateInfo?.hasUpdate ? ` · 发现新版本 v${updateInfo.latestVersion}` : ""}
               </span>
