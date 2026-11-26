@@ -8,7 +8,7 @@ last_verified: 2026-11-26
 
 # 当前里程碑
 
-`v0.2.3` 已准备双端发版并对齐全仓版本号与更新日志，官网 `https://poddesk.captainxq.me/` 随 `main` 自动同步。当前进入内测反馈收集与迭代收口期；对外变更见 [CHANGELOG.md](../CHANGELOG.md)。
+`v0.2.4` 已完成热修补发并对齐全仓版本号与更新日志，官网 `https://poddesk.captainxq.me/` 随 `main` 自动同步。当前进入内测反馈收集与迭代收口期；对外变更见 [CHANGELOG.md](../CHANGELOG.md)。
 
 # 已验证能力
 
@@ -40,6 +40,7 @@ last_verified: 2026-11-26
 
 # 最近完成
 
+- **2026-11-26（`v0.2.4` 检查更新限流回退热修）**：为 [update.rs](../server/src/update.rs) 增加 `releases.atom`（含镜像回退）备用通道以绕开 GitHub API 匿名 `403/429` 限流，并在 [store.ts](../src/store.ts)、[SettingsModal.tsx](../src/components/SettingsModal.tsx)、[ReadingSettingsSection.tsx](../src/components/settings/ReadingSettingsSection.tsx) 与 [UpdateModal.tsx](../src/components/UpdateModal.tsx) 透传真实失败原因。
 - **2026-11-26（桌面代理与登录防死锁、网络诊断、`agy` 兼容及播放器/字幕交互打磨）**：
   - 稳定性与兼容性：为桌面端主窗口与 YouTube 登录窗注入统一 WebView 代理（`macos-proxy` / WebView2 `--proxy-server`），将 Windows 登录窗改为异步创建并去除菜单栏防死锁（[main.rs](../desktop/src/main.rs)、[ytlogin.rs](../desktop/src/ytlogin.rs)）；新增 `GET /api/network/check` 与「设置 › 网络与风控」一键网络诊断及脱敏报告复制，并在视频报错卡增加直达入口（[net.rs](../server/src/net.rs)、[NetworkSettingsSection.tsx](../src/components/settings/NetworkSettingsSection.tsx)）；升级 `agy` 动态 `--help` 探参、模型切换回读校验与末尾异常回复识别（[agents.rs](../server/src/agents.rs)）。
   - 体验打磨：落地三次方人耳感知音量曲线（[playerUtils.ts](../src/components/player/playerUtils.ts)）、`0.5×–3×` 倍速弹出列表（YouTube 嵌入限 `2×`，[Controls.tsx](../src/components/player/Controls.tsx)）、包裹 `.stage-video-wrap` 保留画内双语字幕与控制栏的视频真全屏（`F` 键，[PlayerPanel.tsx](../src/components/PlayerPanel.tsx)、[VideoStage.tsx](../src/components/player/VideoStage.tsx)）、`yt-dlp` 与 InnerTube 缺失视频时长自动回填（[ytdlp.rs](../server/src/asr/ytdlp.rs)、[episodes.rs](../server/src/routes/episodes.rs)）、频道单集「最新 / 最早」排序切换（[Lists.tsx](../src/components/Lists.tsx)）、音频字幕菜单轻量时间对齐（`±1s` 与点句对齐，[subAlign.ts](../src/lib/subAlign.ts)、[TranscriptPanel.tsx](../src/components/TranscriptPanel.tsx)），以及全设置页 5 分页统一视觉重构与 `tauri:dev` 监听修复。
