@@ -140,7 +140,7 @@ jobs:
 
           ### 首次打开提示（开源未签名版）
           - **Windows SmartScreen**：遇到「已保护你的电脑」时，点击「更多信息」→「仍要运行」。
-          - **macOS Gatekeeper**：首次打开若提示“已损坏，无法打开 / 移到废纸篓”（因未购 Apple 公证签名），拖入「应用程序」后在「终端」执行 `xattr -dr com.apple.quarantine /Applications/PodDesk.app` 即可正常打开；也可在系统设置「隐私与安全性」底部尝试放行。
+          - **macOS Gatekeeper**：首次打开若提示“已损坏，无法打开 / 移到废纸篓”（因未购 Apple 公证签名），拖入「应用程序」后在「终端」执行 `xattr -dr com.apple.quarantine /Applications/PodDesk.app` 即可正常打开。
           EOF
             gh release create "$TAG" release-assets/* \
               -R "$REPO" \
