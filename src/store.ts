@@ -208,6 +208,7 @@ interface AppStore {
   updateInfo: UpdateInfo | null;
   updateModalOpen: boolean;
   checkingUpdate: boolean;
+  updateError: string | null;
   notice: { ok: boolean; text: string; action?: { label: string; run: () => void } } | null;
 
   set: (patch: Partial<AppStore>) => void;
@@ -336,6 +337,7 @@ export const useStore = create<AppStore>((set, get) => ({
   updateInfo: null,
   updateModalOpen: false,
   checkingUpdate: false,
+  updateError: null,
   notice: null,
 
   set: (patch) => set(patch),
@@ -351,13 +353,14 @@ export const useStore = create<AppStore>((set, get) => ({
   setUpdateModalOpen: (open) => set({ updateModalOpen: open }),
 
   checkUpdate: async (force = false) => {
-    set({ checkingUpdate: true });
+    set({ checkingUpdate: true, updateError: null });
     try {
       const info = await api.checkUpdate(force);
-      set({ updateInfo: info, checkingUpdate: false });
+      set({ updateInfo: info, checkingUpdate: false, updateError: null });
       return info;
-    } catch {
-      set({ checkingUpdate: false });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "检查更新失败，请检查本机网络或代理设置";
+      set({ checkingUpdate: false, updateError: msg });
       return null;
     }
   },

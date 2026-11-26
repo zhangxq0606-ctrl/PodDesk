@@ -65,7 +65,7 @@ export function SettingsModal() {
     if (checkingUpdate) return;
     const info = await checkUpdate(true);
     if (!info) {
-      notify("检查更新失败，请检查本机网络或代理设置", false);
+      notify(useStore.getState().updateError || "检查更新失败，请检查本机网络或代理设置", false);
       return;
     }
     if (info.hasUpdate) {
@@ -110,7 +110,7 @@ export function SettingsModal() {
                 title={updateInfo?.hasUpdate ? `查看新版本 v${updateInfo.latestVersion}` : "点击检查更新"}
               >
                 <span className="settings-nav-ver">
-                  <span>PodDesk v{health?.version ?? "0.2.3"}</span>
+                  <span>PodDesk v{health?.version ?? "0.2.4"}</span>
                   {updateInfo?.hasUpdate && <span className="settings-update-dot" aria-label="有新版本" />}
                 </span>
                 <span className="settings-nav-hint">

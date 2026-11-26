@@ -15,13 +15,14 @@ function formatAssetSize(bytes?: number | null): string | null {
 }
 
 export function UpdateModal() {
-  const { open, setOpen, updateInfo, checkingUpdate, checkUpdate } = useStore(
+  const { open, setOpen, updateInfo, checkingUpdate, checkUpdate, notify } = useStore(
     useShallow((s) => ({
       open: s.updateModalOpen,
       setOpen: s.setUpdateModalOpen,
       updateInfo: s.updateInfo,
       checkingUpdate: s.checkingUpdate,
       checkUpdate: s.checkUpdate,
+      notify: s.notify,
     })),
   );
 
@@ -107,7 +108,13 @@ export function UpdateModal() {
             <button
               type="button"
               className="btn ghost"
-              onClick={() => void checkUpdate(true)}
+              onClick={() =>
+                void checkUpdate(true).then((info) => {
+                  if (!info) {
+                    notify(useStore.getState().updateError || "检查更新失败，请检查本机网络或代理设置", false);
+                  }
+                })
+              }
               disabled={checkingUpdate}
             >
               <RefreshCw size={14} className={checkingUpdate ? "spin" : undefined} />
