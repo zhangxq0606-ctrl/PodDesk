@@ -1,6 +1,7 @@
 import { pieceIndex, pieces } from "../../lib/ai";
 import type { Episode } from "../../lib/api";
 import { useJobs } from "../../lib/jobs";
+import { toSubtitleTime, useSubAlign } from "../../lib/subAlign";
 import { useStore } from "../../store";
 import { activeSegIndex } from "./playerUtils";
 
@@ -8,17 +9,19 @@ export function AudioSubtitles({ ep }: { ep: Episode }) {
   const transcript = useJobs((s) => s.transcripts[ep.id]);
   const items = useJobs((s) => s.translations[ep.id]?.items);
   const time = useStore((s) => (s.current?.id === ep.id ? s.time : 0));
+  const offset = useSubAlign((s) => s.offsets[ep.id] ?? 0);
   const rawMode = useStore((s) => s.prefs.subtitleMode);
   const mode = rawMode === "off" ? "bilingual" : rawMode;
   const showNext = useStore((s) => s.prefs.audioNextLine);
 
   if (!transcript || !transcript.segments.length) return null;
+  const subTime = toSubtitleTime(time, offset);
   const segs = transcript.segments;
-  const i = Math.max(0, activeSegIndex(segs, time));
+  const i = Math.max(0, activeSegIndex(segs, subTime));
   const seg = segs[i];
   if (!seg) return null;
 
-  const progress = Math.min(1, Math.max(0, (time - seg.start) / Math.max(0.5, seg.end - seg.start)));
+  const progress = Math.min(1, Math.max(0, (subTime - seg.start) / Math.max(0.5, seg.end - seg.start)));
   const cjk = (x: string) => /[\u4e00-\u9fff]/.test(x);
   const origPs = pieces(seg.text, cjk(seg.text));
   const zh = items?.[i]?.trim();

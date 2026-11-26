@@ -2,7 +2,10 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   markYtBlocked,
   parseBlockedEntries,
+  perceptualVolumeGain,
+  RATES,
   requestYtStreamUrl,
+  stepRate,
   unmarkYtBlocked,
   wasYtBlocked,
   YT_BLOCKED_TTL_MS,
@@ -162,5 +165,34 @@ describe("player blocklist TTL, stream dedup & playback pending state", () => {
     expect(useStore.getState().playing).toBe(false);
     expect(useStore.getState().playWhenReady).toBeNull();
     expect(useStore.getState().seekWhenReady).toBeNull();
+  });
+
+  it("maps perceptual cubic volume gain and clamps stepRate to player maxRate", () => {
+    expect(perceptualVolumeGain(0)).toBe(0);
+    expect(perceptualVolumeGain(-0.5)).toBe(0);
+    expect(perceptualVolumeGain(0.5)).toBeCloseTo(0.125, 5);
+    expect(perceptualVolumeGain(1)).toBe(1);
+    expect(RATES).toContain(3);
+
+    let appliedRate = 1;
+    useStore.setState({
+      prefs: { ...useStore.getState().prefs, playbackRate: 2 },
+      player: {
+        episodeId: "ep-yt",
+        seek: () => {},
+        toggle: () => {},
+        play: () => {},
+        setRate: (r) => {
+          appliedRate = r;
+        },
+        maxRate: 2,
+      },
+    });
+    stepRate(1);
+    expect(appliedRate).toBe(2);
+    expect(useStore.getState().prefs.playbackRate).toBe(2);
+
+    stepRate(-1);
+    expect(appliedRate).toBe(1.75);
   });
 });

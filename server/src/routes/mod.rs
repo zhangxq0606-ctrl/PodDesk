@@ -140,6 +140,7 @@ pub fn router(state: Arc<AppState>, dist_dir: Option<PathBuf>) -> Router {
         .route("/api/youtube/auth", get(settings::get_youtube_auth))
         .route("/api/youtube/auth/login", post(settings::open_youtube_login))
         .route("/api/youtube/auth/logout", post(settings::logout_youtube))
+        .route("/api/network/check", get(settings::network_check))
         .route("/api/agents", get(ai::detect_agents))
         .route("/api/agents/warm", post(ai::warm_agent))
         .route("/api/agents/probe", post(ai::probe_agent))

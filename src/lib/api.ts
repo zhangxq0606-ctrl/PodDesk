@@ -112,6 +112,20 @@ export interface ChatMessage {
 export interface OfficialTranscriptResult {
   transcript: Transcript;
   alignedTranslation?: (string | null)[] | null;
+  duration?: number | null;
+}
+
+export interface NetCheckItem {
+  id: "proxy" | "youtube" | "video" | "ytdlpSource" | "ytdlp";
+  ok: boolean;
+  ms?: number | null;
+  detail: string;
+}
+
+export interface NetworkReport {
+  checks: NetCheckItem[];
+  webviewProxy: string;
+  githubMirror: string;
 }
 
 export interface SearchResult {
@@ -456,10 +470,11 @@ export const api = {
     return result;
   },
   getStreamUrl: (episodeId: string, fresh = false, signal?: AbortSignal) =>
-    requestJson<{ url: string }>(
+    requestJson<{ url: string; duration?: number | null }>(
       `/api/episodes/${encodeURIComponent(episodeId)}/stream-url?fresh=${fresh ? "true" : "false"}`,
       signal ? { signal } : undefined,
     ),
+  networkCheck: () => requestJson<NetworkReport>("/api/network/check"),
   getCookiesStatus: () => requestJson<{ hasCookies: boolean }>("/api/cookies"),
   saveCookies: (text: string) =>
     requestJson<{ ok: boolean; hasCookies: boolean }>("/api/cookies", {

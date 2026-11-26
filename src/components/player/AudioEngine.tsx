@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useStore } from "../../store";
-import { isVideoMediaUrl, MEDIA_STALL_TIMEOUT_MS, persistProgress, resetSavedProgress, trackTime } from "./playerUtils";
+import { isVideoMediaUrl, MEDIA_STALL_TIMEOUT_MS, perceptualVolumeGain, persistProgress, resetSavedProgress, trackTime } from "./playerUtils";
 
 /** Root-level audio element so podcasts keep playing when browsing other views. */
 export function AudioEngine() {
@@ -93,7 +93,7 @@ export function AudioEngine() {
 
   useEffect(() => {
     if (!ref.current) return;
-    ref.current.volume = volume;
+    ref.current.volume = perceptualVolumeGain(volume);
     ref.current.muted = muted;
   }, [volume, muted, audio?.id]);
 

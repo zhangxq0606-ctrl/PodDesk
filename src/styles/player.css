@@ -244,6 +244,89 @@
   cursor: pointer;
 }
 
+.video-fs {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  z-index: 4;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(16, 18, 22, 0.62);
+  backdrop-filter: blur(8px);
+  color: #ffffff;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.16s var(--ease), background 0.14s var(--ease), transform 0.1s var(--ease);
+}
+
+.video:hover .video-fs,
+.video:focus-within .video-fs,
+.stage-video-wrap:fullscreen .video-fs {
+  opacity: 1;
+}
+
+.video-fs:hover {
+  background: rgba(16, 18, 22, 0.86);
+}
+
+.video-fs:active {
+  transform: scale(0.94);
+}
+
+.stage-video-wrap:fullscreen,
+.stage-video-wrap:-webkit-full-screen {
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+  padding: 0;
+  gap: 0;
+  background: #000000;
+  justify-content: center;
+  position: relative;
+}
+
+.stage-video-wrap:fullscreen .video,
+.stage-video-wrap:-webkit-full-screen .video {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: #000000;
+}
+
+.stage-video-wrap:fullscreen .subtitle-overlay,
+.stage-video-wrap:-webkit-full-screen .subtitle-overlay {
+  bottom: 76px;
+}
+
+.stage-video-wrap:fullscreen .controls,
+.stage-video-wrap:-webkit-full-screen .controls {
+  position: fixed;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  width: min(760px, calc(100vw - 32px));
+  z-index: 20;
+  background: color-mix(in srgb, var(--overlay) 92%, transparent);
+  backdrop-filter: blur(16px);
+  opacity: 0.12;
+  transition: opacity 0.2s var(--ease);
+}
+
+.stage-video-wrap:fullscreen .controls:hover,
+.stage-video-wrap:fullscreen .controls:focus-within,
+.stage-video-wrap:-webkit-full-screen .controls:hover,
+.stage-video-wrap:-webkit-full-screen .controls:focus-within {
+  opacity: 1;
+}
+
 .video-standby {
   display: grid;
   place-items: center;
@@ -864,6 +947,75 @@
   align-items: center;
   gap: 10px;
   margin-left: auto;
+}
+
+.rate-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.rate-pop {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  right: 0;
+  min-width: 112px;
+  padding: 5px;
+  border-radius: 11px;
+  background: var(--overlay);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--line-strong);
+  box-shadow: var(--rim-top), var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  z-index: 30;
+  transform-origin: bottom right;
+  animation: pop-up 0.15s var(--ease-out) both;
+}
+
+.rate-pop button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.rate-pop button:hover:not(:disabled) {
+  background: var(--hover-fill);
+  color: var(--text);
+}
+
+.rate-pop button.on {
+  background: var(--active-fill);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.rate-pop button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.rate-check {
+  opacity: 0;
+  flex: none;
+  color: var(--accent-text);
+}
+
+.rate-pop button.on .rate-check {
+  opacity: 1;
 }
 
 .rate-btn {

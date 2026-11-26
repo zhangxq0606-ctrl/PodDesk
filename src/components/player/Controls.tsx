@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Captions, CheckCircle2, Languages, Loader2, Pause, Play, Square, Volume1, Volume2, VolumeX } from "lucide-react";
+import { Captions, Check, CheckCircle2, Languages, Loader2, Maximize2, Minimize2, Pause, Play, Square, Volume1, Volume2, VolumeX } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { countTranslated, isMostlyChinese, parseGuideMarkdown } from "../../lib/ai";
 import type { Episode } from "../../lib/api";
 import { clock } from "../../lib/format";
 import { runTranslate, stopTranslate, useJobs } from "../../lib/jobs";
 import { useStore } from "../../store";
-import { cycleRate, isVideoMediaUrl, persistProgress, toggleMute } from "./playerUtils";
+import { isVideoMediaUrl, persistProgress, RATES, toggleMute } from "./playerUtils";
 
 function SeekBack10Icon() {
   return (
@@ -325,7 +325,83 @@ function VideoSubtitleMenu({ ep }: { ep: Episode }) {
   );
 }
 
-export function Controls({ ep }: { ep: Episode }) {
+function RateMenu({ rate, max }: { rate: number; max?: number }) {
+  const [open, setOpen] = useState(false);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const savePrefs = useStore((s) => s.savePrefs);
+  const player = useStore((s) => s.player);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: PointerEvent) => {
+      if (!boxRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        setOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", onDown);
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      document.removeEventListener("pointerdown", onDown);
+      window.removeEventListener("keydown", onKey, true);
+    };
+  }, [open]);
+
+  const shown = max && rate > max ? max : rate;
+  return (
+    <div className="rate-wrap" ref={boxRef}>
+      <button
+        type="button"
+        className={`rate-btn ${shown !== 1 ? "is-custom" : ""}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title="切换倍速 ([ / ])"
+        onClick={() => setOpen((v) => !v)}
+      >
+        {shown}×
+      </button>
+      {open && (
+        <div className="rate-pop" role="menu" aria-label="播放倍速">
+          {[...RATES].reverse().map((r) => {
+            const disabled = !!max && r > max;
+            return (
+              <button
+                key={r}
+                type="button"
+                role="menuitemradio"
+                aria-checked={r === shown}
+                disabled={disabled}
+                title={disabled ? "YouTube 嵌入播放最高 2×，可切到「仅音频」或直链以使用更快倍速" : undefined}
+                className={r === shown ? "on" : ""}
+                onClick={() => {
+                  player?.setRate(r);
+                  savePrefs({ playbackRate: r });
+                  setOpen(false);
+                }}
+              >
+                <Check size={13} className="rate-check" />
+                <span>{r === 1 ? "1× 正常" : `${r}×`}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function Controls({
+  ep,
+  onFullscreen,
+  isFullscreen,
+}: {
+  ep: Episode;
+  onFullscreen?: () => void;
+  isFullscreen?: boolean;
+}) {
   const { current, time, length, playing, player, loadingSince, rate, audioStageSub, savePrefs, load, playSoon } = useStore(
     useShallow((s) => ({
       current: s.current,
@@ -509,9 +585,19 @@ export function Controls({ ep }: { ep: Episode }) {
 
       <VolumePopover />
 
-      <button type="button" className={`rate-btn ${rate !== 1 ? "is-custom" : ""}`} onClick={cycleRate} title="切换倍速 ([ / ])">
-        {rate}×
-      </button>
+      <RateMenu rate={rate} max={player?.maxRate} />
+
+      {isVideo && onFullscreen && (
+        <button
+          type="button"
+          className="icon-btn"
+          title={isFullscreen ? "退出全屏 (Esc / F)" : "全屏观看 (F)"}
+          aria-label={isFullscreen ? "退出全屏" : "全屏观看"}
+          onClick={onFullscreen}
+        >
+          {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+        </button>
+      )}
     </div>
   );
 }

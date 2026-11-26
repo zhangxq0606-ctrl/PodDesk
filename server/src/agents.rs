@@ -295,10 +295,10 @@ pub async fn models(kind: Kind, path: &Path) -> Result<Vec<AgentModel>> {
             Ok(parse_codex_models(&r?))
         }
         _ => {
-            let conn = Acp::start_raw(kind, path).await?;
+            let conn = Acp::start_raw(kind, path).await.map_err(|e| friendly(kind, e))?;
             let r = conn.rpc.request("session/new", json!({ "cwd": work_dir()?.to_string_lossy(), "mcpServers": [] }), 60).await;
             conn.close().await;
-            Ok(parse_acp_models(&r?))
+            Ok(parse_acp_models(&r.map_err(|e| friendly(kind, e))?))
         }
     }
 }
@@ -369,7 +369,9 @@ pub async fn complete(
         reminded = format!("{}\n\n(Answer with the JSON only, no Markdown fences, no other text.)", req.user);
         req.user = &reminded;
     }
-    let (conn, guard) = POOL.take(kind, path, req.system, req.model, req.priority, &cancel).await?;
+    let (conn, guard) = POOL.take(kind, path, req.system, req.model, req.priority, &cancel)
+        .await
+        .map_err(|e| friendly(kind, e))?;
     let result = conn.ask(&req, cancel.clone(), &on_delta, &on_thinking).await;
     POOL.give_back(conn, guard, result.is_ok()).await;
     match result {
@@ -381,19 +383,79 @@ pub async fn complete(
 
 fn friendly(kind: Kind, e: anyhow::Error) -> anyhow::Error {
     let m = e.to_string();
+    if kind == Kind::Antigravity {
+        if let Some(f) = agy_friendly(&m) {
+            return anyhow!(f);
+        }
+    }
     let name = display(kind);
     let l = m.to_lowercase();
     if l.contains("model is unavailable") || l.contains("model not found") || l.contains("unknown model") {
         anyhow!("{name} 的默认模型不可用，请在设置里为它选一个模型")
     } else if l.contains("not logged in") || l.contains("login") || l.contains("unauthor") || l.contains("auth_required") || l.contains("authentication") {
         anyhow!("{name} 需要登录：在终端运行 {} 完成登录后，回到设置点「重新检测」", kind.exe())
-    } else if kind == Kind::Antigravity && (l.contains("resource exhausted") || l.contains("429")) {
-        anyhow!("{name} 暂时拒绝了这次请求（不一定是额度用完），稍后再试：{}", m.chars().take(160).collect::<String>())
     } else if l.contains("rate limit") || l.contains("usage limit") || l.contains("quota") || l.contains("429") || l.contains("limit reached") {
         anyhow!("{name} 的订阅额度暂时用完了（请求太频繁或额度不足）：{}", m.chars().take(160).collect::<String>())
     } else {
         e
     }
+}
+
+fn agy_friendly(m: &str) -> Option<String> {
+    let l = m.to_lowercase();
+    let has = |words: &[&str]| words.iter().any(|w| l.contains(w));
+    Some(if has(&[AGY_TOO_OLD, "flag provided but not defined", "unknown command", "unknown flag", "unknown argument"]) {
+        "Antigravity CLI 版本太旧，不支持当前调用方式：在终端运行 agy update 升级后，回到设置点「重新检测」".to_string()
+    } else if has(&["individual quota reached", "third-party quota reached"]) {
+        let third = l.contains("third-party");
+        match agy_reset_in(m) {
+            Some(t) if third => format!("Antigravity CLI 的 Claude / GPT 额度用完了，{t} 后恢复；Gemini 模型额度单独计算，可先切换 Gemini 模型"),
+            Some(t) => format!("Antigravity CLI 所用 Google 账号的额度用完了，{t} 后恢复；也可以先换一个模型"),
+            None if third => String::from("Antigravity CLI 的 Claude / GPT 额度用完了；Gemini 模型额度单独计算，可先切换 Gemini 模型"),
+            None => String::from("Antigravity CLI 所用 Google 账号的额度用完了，稍后再试或先换一个模型"),
+        }
+    } else if has(&["credits balance is too low"]) {
+        "Antigravity CLI 的 AI 点数余额不足，等额度恢复或在 Google 账号内补充后再试".to_string()
+    } else if has(&["violation of terms of service", "service has been disabled"]) {
+        "Google 停用了这个账号的 Antigravity 服务（判定违反服务条款），需要先向 Google 申诉".to_string()
+    } else if has(&["verification required", "validation_required"]) {
+        "Google 要求先验证这个账号：在终端运行 agy，按提示完成验证后再试".to_string()
+    } else if has(&["high traffic", "no capacity available", "code 503"]) {
+        "Google 服务器正忙，所选模型暂时没有空余算力：过一分钟再试或切换其他模型".to_string()
+    } else if has(&["network issue connecting"]) {
+        "Antigravity CLI 连不上 Google 服务器：请检查网络或代理后重试".to_string()
+    } else if has(&["resource_exhausted", "resource has been exhausted", "resource exhausted", "code 429"]) {
+        "Antigravity CLI 暂时拒绝了这次请求（Google 返回 429，不一定是额度用完）：稍后再试或切换其他模型".to_string()
+    } else if has(&["agent execution terminated"]) {
+        "Antigravity CLI 回答到一半出错停止了，请重试".to_string()
+    } else {
+        return None;
+    })
+}
+
+fn agy_reset_in(m: &str) -> Option<String> {
+    let i = m.to_lowercase().find("resets in ")?;
+    let t: String = m[i + "resets in ".len()..].chars().take_while(|c| c.is_ascii_alphanumeric()).collect();
+    (!t.is_empty()).then_some(t)
+}
+
+/// `agy` reports failed model calls at the end of a normal turn prefixed with `⚠`.
+fn agy_error_line(text: &str) -> Option<&str> {
+    const STARTS: [&str; 10] = [
+        "RESOURCE_EXHAUSTED",
+        "PERMISSION_DENIED",
+        "Individual quota reached",
+        "Third-party quota reached",
+        "Verification Required",
+        "Agent execution terminated",
+        "There was a network issue",
+        "Your AI credits balance",
+        "Our servers are experiencing high traffic",
+        "This service has been disabled",
+    ];
+    let last = text.lines().rev().find(|l| !l.trim().is_empty())?.trim();
+    let body = last.strip_prefix('⚠')?.trim_start();
+    STARTS.iter().any(|s| body.starts_with(s)).then_some(last)
 }
 
 pub fn display(kind: Kind) -> &'static str {
@@ -1068,13 +1130,82 @@ impl Codex {
 // ---- Agent Client Protocol (Kimi Code, OpenCode, Antigravity) -------------------------
 
 struct Acp {
+    kind: Kind,
     rpc: Rpc,
     spare: std::sync::Mutex<Option<oneshot::Receiver<Value>>>,
 }
 
+const AGY_TOO_OLD: &str = "agy has no acp server";
+
+static AGY_HELP: once_cell::sync::Lazy<std::sync::Mutex<HashMap<String, String>>> =
+    once_cell::sync::Lazy::new(Default::default);
+
+async fn agy_acp_help(path: &Path) -> String {
+    let key = match std::fs::metadata(path) {
+        Ok(md) => format!("{}|{}|{:?}", path.display(), md.len(), md.modified().ok()),
+        Err(_) => path.display().to_string(),
+    };
+    if let Some(h) = AGY_HELP.lock().unwrap().get(&key) {
+        return h.clone();
+    }
+    let help = output(Some(Kind::Antigravity), path, &["acp", "--help"], 15)
+        .await
+        .unwrap_or_default();
+    if !help.trim().is_empty() {
+        AGY_HELP.lock().unwrap().insert(key, help.clone());
+    }
+    help
+}
+
+fn agy_flags(help: &str) -> Result<Vec<&'static str>> {
+    if !help.trim().is_empty() && !help.contains("--agent") && !help.to_lowercase().contains("agent client protocol") {
+        return Err(anyhow!("{AGY_TOO_OLD}"));
+    }
+    let mut v = Vec::new();
+    if help.contains("--include-default-customizations") {
+        v.push("--include-default-customizations=false");
+    }
+    if help.contains("--disable-telemetry") || help.contains("--disable_telemetry") {
+        v.push("--disable-telemetry");
+    }
+    Ok(v)
+}
+
+const EFFORTS: [&str; 6] = ["minimal", "low", "medium", "high", "xhigh", "max"];
+
+fn config_applied(result: &Value, id: &str, value: &str) -> bool {
+    match result["configOptions"].as_array() {
+        Some(opts) => opts
+            .iter()
+            .find(|o| o["id"].as_str() == Some(id))
+            .is_some_and(|o| o["currentValue"].as_str() == Some(value)),
+        None => true,
+    }
+}
+
+fn split_leveled(config_options: &Value, model: &str) -> Option<(String, String)> {
+    let opt = config_options
+        .as_array()?
+        .iter()
+        .find(|o| o["id"].as_str() == Some("model") || o["category"].as_str() == Some("model"))?;
+    let values: Vec<String> = opt["options"]
+        .as_array()?
+        .iter()
+        .flat_map(|x| x["options"].as_array().cloned().unwrap_or_else(|| vec![x.clone()]))
+        .filter_map(|x| x["value"].as_str().map(str::to_string))
+        .collect();
+    values
+        .into_iter()
+        .filter_map(|v| {
+            let level = model.strip_prefix(v.as_str())?.strip_prefix('-')?;
+            EFFORTS.contains(&level).then(|| (v.clone(), level.to_string()))
+        })
+        .max_by_key(|(v, _)| v.len())
+}
+
 fn acp_args(kind: Kind) -> &'static [&'static str] {
     match kind {
-        Kind::Antigravity => &["acp", "--agent", "podcast-desk", "--include-default-customizations=false", "--disable-telemetry"],
+        Kind::Antigravity => &["acp", "--agent", "podcast-desk"],
         Kind::Kimi | Kind::Opencode => &["acp"],
         _ => &[],
     }
@@ -1084,7 +1215,9 @@ static ANTIGRAVITY_INIT: tokio::sync::OnceCell<()> = tokio::sync::OnceCell::cons
 
 impl Acp {
     async fn start_raw(kind: Kind, path: &Path) -> Result<Acp> {
+        let mut args: Vec<&str> = acp_args(kind).to_vec();
         if kind == Kind::Antigravity {
+            args.extend(agy_flags(&agy_acp_help(path).await)?);
             ANTIGRAVITY_INIT
                 .get_or_try_init(|| async {
                     let dir = work_dir()?.join(".agents/agents/podcast-desk");
@@ -1097,7 +1230,7 @@ impl Acp {
                 })
                 .await?;
         }
-        let rpc = Rpc::spawn(Some(kind), path, acp_args(kind)).await?;
+        let rpc = Rpc::spawn(Some(kind), path, &args).await?;
         rpc.request(
             "initialize",
             json!({
@@ -1108,7 +1241,7 @@ impl Acp {
             60,
         )
         .await?;
-        Ok(Acp { rpc, spare: std::sync::Mutex::new(None) })
+        Ok(Acp { kind, rpc, spare: std::sync::Mutex::new(None) })
     }
 
     async fn start(kind: Kind, path: &Path) -> Result<Acp> {
@@ -1161,21 +1294,9 @@ impl Acp {
     ) -> Result<String> {
         let session = cancellable(&cancel, self.session()).await?;
         if let Some(m) = req.model.filter(|m| !m.is_empty()) {
-            if cancellable(
-                &cancel,
-                self.rpc.request("session/set_config_option", json!({ "sessionId": session, "configId": "model", "value": m }), 15),
-            )
-            .await
-            .is_err()
-            {
-                if cancel.load(Ordering::Relaxed) {
-                    return Err(anyhow!("已取消"));
-                }
-                let _ = cancellable(
-                    &cancel,
-                    self.rpc.request("session/set_model", json!({ "sessionId": session, "modelId": m }), 15),
-                )
-                .await;
+            let applied = cancellable(&cancel, self.select_model(&session, m)).await?;
+            if !applied && self.kind == Kind::Antigravity {
+                return Err(anyhow!("Antigravity CLI 当前未提供所选模型「{m}」，请在 PodDesk 设置中重新选择模型"));
             }
         }
         let prompt = if req.system.is_empty() {
@@ -1203,6 +1324,11 @@ impl Acp {
                     }
                 }
                 self.prepare_session().await;
+                if self.kind == Kind::Antigravity {
+                    if let Some(line) = agy_error_line(&text) {
+                        return Err(anyhow!("{line}"));
+                    }
+                }
                 return Ok(text);
             }
             if cancel.load(Ordering::Relaxed) {
@@ -1220,6 +1346,36 @@ impl Acp {
                 return Err(anyhow!("{tool_err}"));
             }
         }
+    }
+
+    async fn select_model(&self, session: &str, m: &str) -> Result<bool> {
+        let set = |id: &str, value: &str| {
+            self.rpc.request(
+                "session/set_config_option",
+                json!({ "sessionId": session, "configId": id, "value": value }),
+                15,
+            )
+        };
+        let first = set("model", m).await;
+        if first.as_ref().is_ok_and(|r| config_applied(r, "model", m)) {
+            return Ok(true);
+        }
+        if self
+            .rpc
+            .request("session/set_model", json!({ "sessionId": session, "modelId": m }), 15)
+            .await
+            .is_ok()
+        {
+            return Ok(true);
+        }
+        let Some((family, level)) = first.ok().and_then(|r| split_leveled(&r["configOptions"], m)) else {
+            return Ok(false);
+        };
+        let fam_ok = set("model", &family).await.is_ok_and(|r| config_applied(&r, "model", &family));
+        let lvl_ok = set("thought_level", &level)
+            .await
+            .is_ok_and(|r| config_applied(&r, "thought_level", &level));
+        Ok(fam_ok && lvl_ok)
     }
 
     async fn on_update(
@@ -1344,5 +1500,34 @@ mod model_list_tests {
         let err = check_acp_tool_update(&json!({ "sessionUpdate": "tool_call", "title": "exa_web_search" })).unwrap();
         assert!(err.contains("exa_web_search"));
         assert!(check_acp_tool_update(&json!({ "sessionUpdate": "tool_call_update" })).is_some());
+    }
+
+    #[test]
+    fn handles_agy_flags_models_and_error_lines() {
+        let newer = "Usage: agy acp\n  --agent\n  --include-default-customizations\n  --disable-telemetry\n";
+        assert_eq!(agy_flags(newer).unwrap(), ["--include-default-customizations=false", "--disable-telemetry"]);
+        let older = "Usage: agy acp\n  --agent\n";
+        assert!(agy_flags(older).unwrap().is_empty());
+        assert!(agy_flags("").unwrap().is_empty());
+        let before = "Usage of agy:\n  --model\n";
+        assert!(friendly(Kind::Antigravity, agy_flags(before).unwrap_err()).to_string().contains("agy update"));
+
+        let opts = json!([
+            { "id": "model", "category": "model", "currentValue": "gemini-4-neon", "options": [
+                { "value": "gemini-4-neon" },
+                { "value": "gemini-3.8-flash" },
+                { "value": "gpt-oss-120b-medium" }
+            ] },
+            { "id": "thought_level", "currentValue": "high", "options": [{ "value": "low" }, { "value": "high" }] }
+        ]);
+        assert!(!config_applied(&json!({ "configOptions": opts }), "model", "gemini-4-neon-high"));
+        assert!(config_applied(&json!({ "configOptions": opts }), "model", "gemini-4-neon"));
+        assert_eq!(split_leveled(&opts, "gemini-3.8-flash-medium"), Some(("gemini-3.8-flash".into(), "medium".into())));
+        assert_eq!(split_leveled(&opts, "gpt-oss-120b-medium"), None);
+
+        let quota = "部分内容\n\n⚠ Individual quota reached. Resets in 1h18m40s.\n";
+        let line = agy_error_line(quota).unwrap();
+        let msg = friendly(Kind::Antigravity, anyhow!("{line}")).to_string();
+        assert!(msg.contains("1h18m40s"));
     }
 }

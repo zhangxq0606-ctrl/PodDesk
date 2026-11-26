@@ -1,5 +1,6 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
+  ArrowUpDown,
   CheckCheck,
   CheckCircle2,
   Circle,
@@ -591,6 +592,7 @@ export function ShowView({ id }: { id: string }) {
   const episodes = showEpisodes[id];
   const [filter, setFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [sortOrder, setSortOrder] = useState<"desc" | "asc">("desc");
   const [descExpanded, setDescExpanded] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -660,6 +662,10 @@ export function ShowView({ id }: { id: string }) {
   }, [episodes, statusFilter, filter]);
 
   const { month, setMonth, filtered: shown } = useMonthFilter(episodes ? filteredByStatusAndTitle : null);
+  const orderedShown = useMemo(
+    () => (shown && sortOrder === "asc" ? [...shown].reverse() : shown),
+    [shown, sortOrder],
+  );
 
   const handleRefresh = async () => {
     if (refreshing) return;
@@ -786,7 +792,7 @@ export function ShowView({ id }: { id: string }) {
 
         <div className="list-head">
           <div className="row-actions">
-            <h2 className="section-title flush">单集（{shown?.length ?? 0}）</h2>
+            <h2 className="section-title flush">单集（{orderedShown?.length ?? 0}）</h2>
             <div className="seg-control" role="tablist" aria-label="单集状态筛选">
               {(
                 [
@@ -808,6 +814,15 @@ export function ShowView({ id }: { id: string }) {
                 </button>
               ))}
             </div>
+            <button
+              type="button"
+              className={`chip sm ${sortOrder === "asc" ? "on" : ""}`}
+              title={sortOrder === "desc" ? "当前：最新在前，点击切换最早在前" : "当前：最早在前，点击切换最新在前"}
+              onClick={() => setSortOrder((o) => (o === "desc" ? "asc" : "desc"))}
+            >
+              <ArrowUpDown size={12} />
+              <span>{sortOrder === "desc" ? "最新" : "最早"}</span>
+            </button>
           </div>
           <div className="search-inline">
             <Search size={14} />
@@ -838,7 +853,7 @@ export function ShowView({ id }: { id: string }) {
 
         {!episodes ? (
           <SkeletonFeed count={6} />
-        ) : !shown || shown.length === 0 ? (
+        ) : !orderedShown || orderedShown.length === 0 ? (
           filter.trim() && hasMoreYt ? (
             <div className="load-more-bar" style={{ justifyContent: "flex-start", gap: 10 }}>
               <span className="muted small">当前已载 {episodes.length} 集未匹配「{filter.trim()}」</span>
@@ -858,7 +873,7 @@ export function ShowView({ id }: { id: string }) {
             </p>
           )
         ) : (
-          <GroupedEpisodes episodes={shown} showShow={false} allowDelete onDelete={handleDeleteEp} />
+          <GroupedEpisodes episodes={orderedShown} showShow={false} allowDelete onDelete={handleDeleteEp} />
         )}
 
         {isYt && episodes && episodes.length > 0 && (

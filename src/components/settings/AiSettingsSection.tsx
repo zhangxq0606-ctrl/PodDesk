@@ -182,34 +182,49 @@ function AgentDetailPanel({
     }
   };
 
+  const vendorLabel = meta.vendor.toLowerCase() !== meta.name.toLowerCase() ? meta.vendor : "";
+  const subParts = [vendorLabel, agent.version, "免 API Key"].filter(Boolean);
+
   return (
-    <div className="provider-form">
+    <div className="ai-wb-detail">
       <div className="ms-head">
         <div>
           <p className="ms-title">
             <span>{meta.name}</span>
             <span className={`pill ${st.tone === "ok" ? "ok" : st.tone === "warn" ? "warn" : ""}`}>{st.text}</span>
           </p>
-          <p className="muted small">
-            {meta.vendor}
-            {agent.version ? ` · ${agent.version}` : ""} · 免 API Key
+          <p className="ai-sub-meta">
+            <span>{subParts.join(" · ")}</span>
+            <a className="link-btn" href={meta.installUrl} target="_blank" rel="noreferrer">
+              官网说明 <ExternalLink size={11} />
+            </a>
           </p>
         </div>
-        <button
-          type="button"
-          className={`btn sm ${isDefault ? "" : "primary"}`}
-          disabled={isDefault}
-          onClick={onSetDefault}
-        >
-          {isDefault ? (
-            <>
-              <Check size={13} /> 当前默认
-            </>
-          ) : (
-            "设为默认"
+
+        <div className="row-tight">
+          <button type="button" className="btn sm" disabled={busy !== null} onClick={() => void handleTest()}>
+            {busy === "test" ? <Loader2 size={13} className="spin" /> : null}
+            <span>试一下</span>
+          </button>
+          {agent.login !== "ready" && (
+            <button type="button" className="btn sm ghost" disabled={busy !== null} onClick={() => void handleProbe()}>
+              {busy === "probe" ? <Loader2 size={13} className="spin" /> : null}
+              <span>检测登录</span>
+            </button>
           )}
-        </button>
+          {isDefault ? (
+            <span className="pill ok">
+              <Check size={12} /> 当前默认
+            </span>
+          ) : (
+            <button type="button" className="btn sm primary" onClick={onSetDefault}>
+              设为默认
+            </button>
+          )}
+        </div>
       </div>
+
+      {result && <p className={result.ok ? "ok-text small" : "error-text small"}>{result.text}</p>}
 
       {agent.login === "needsLogin" && (
         <div className="ms-callout">
@@ -225,24 +240,6 @@ function AgentDetailPanel({
           </div>
         </div>
       )}
-
-      <div className="row-actions">
-        <button type="button" className="btn sm" disabled={busy !== null} onClick={() => void handleTest()}>
-          {busy === "test" ? <Loader2 size={13} className="spin" /> : null}
-          <span>试一下</span>
-        </button>
-        {agent.login !== "ready" && (
-          <button type="button" className="btn sm ghost" disabled={busy !== null} onClick={() => void handleProbe()}>
-            {busy === "probe" ? <Loader2 size={13} className="spin" /> : null}
-            <span>检测登录</span>
-          </button>
-        )}
-        {result && <span className={result.ok ? "ok-text small" : "error-text small"}>{result.text}</span>}
-        <span className="spacer" />
-        <a className="link-btn" href={meta.installUrl} target="_blank" rel="noreferrer">
-          官网说明 <ExternalLink size={11} />
-        </a>
-      </div>
 
       <label>
         <span>默认子模型</span>
@@ -262,24 +259,24 @@ function AgentDetailPanel({
       <div className="agent-models">
         <div className="agent-models-h">
           <span className="row-tight">
-            <span>问答选单里可选的子模型</span>
+            <span>问答快捷切换子模型</span>
             {picked.length > 0 && <span className="pill">已选 {picked.length}</span>}
           </span>
-          <span className="row-tight">
+          <div className="row-tight">
             {picked.length > 0 && (
               <button
                 type="button"
-                className="link-btn"
+                className="btn sm ghost"
                 onClick={() => void saveProviderOverride(agent.kind, { models: [] })}
               >
                 清空
               </button>
             )}
-            <button type="button" className="link-btn" disabled={busy !== null} onClick={() => void handleFetchModels()}>
+            <button type="button" className="btn sm" disabled={busy !== null} onClick={() => void handleFetchModels()}>
               {busy === "models" ? <Loader2 size={12} className="spin" /> : <RefreshCw size={12} />}
               <span>{fetched ? "重新读取" : "读取支持的模型"}</span>
             </button>
-          </span>
+          </div>
         </div>
 
         {candidateIds.length > 6 && (
@@ -346,10 +343,6 @@ function AgentDetailPanel({
           </button>
         </div>
       </div>
-
-      <p className="muted small">
-        字幕与问题仅交给本机 {meta.name} 在隔离空目录中纯文本处理，禁止调用外部工具与读写文件；受本地 CLI 客户端机制影响，大批量并发翻译优先推荐直连 API 模型。
-      </p>
     </div>
   );
 }
@@ -527,120 +520,212 @@ export function AiSettingsSection() {
     ? `${trTarget.name}${prefs.translateModel ? ` · ${prefs.translateModel.split("/").pop()}` : ""}`
     : "未设置";
 
+  const renderApiRow = (p: ProviderConfig) => {
+    const configured = !p.needsKey || !!keyStatus[p.id];
+    const isDef = chatProviderId === p.id;
+    const tag = isDef ? "默认" : !p.needsKey ? "免 Key" : configured ? "已配" : "未配";
+    const toneClass = isDef || !p.needsKey || configured ? "ok" : "";
+    return (
+      <button
+        key={p.id}
+        type="button"
+        className={`ai-wb-item ${editId === p.id ? "on" : ""}`}
+        onClick={() => setEditId(p.id)}
+      >
+        <span className="ai-wb-name clamp1">{p.name}</span>
+        <span className={`ai-wb-tag ${toneClass}`}>{tag}</span>
+      </button>
+    );
+  };
+
   return (
-    <div className="ai-settings">
-      <div className="ai-summary-bar">
-        {splitTranslate ? (
-          <span>
-            问答：<strong>{chatBase?.name ?? "未设置"}</strong> · 字幕翻译：<strong>{trSummaryName}</strong>
-          </span>
-        ) : (
-          <span>
-            当前默认：<strong>{chatBase?.name ?? "未设置"}</strong>
-            <span className="muted"> · 管问答、导读与字幕翻译</span>
-          </span>
-        )}
-        {!isProviderReady(chatBase) && <span className="ai-summary-warn">当前默认模型尚未验证或未配 Key</span>}
+    <div className="settings-pane">
+      <div className="settings-head">
+        <div>
+          <h4>AI 模型与 Agent</h4>
+          <p>支持本机免 Key CLI 与直连 API，管节目问答、导读与字幕翻译</p>
+        </div>
+        <button
+          type="button"
+          className="btn sm ghost"
+          disabled={detecting}
+          onClick={() => {
+            setDetecting(true);
+            void refreshAgents().finally(() => setDetecting(false));
+          }}
+        >
+          <RefreshCw size={13} className={detecting ? "spin" : ""} /> {detecting ? "检测中…" : "重新检测本机 AI"}
+        </button>
       </div>
 
-      <div className="provider-split">
-        <div className="provider-list">
-          <div className="ai-group-h">
-            <span>本机 AI · 免 Key</span>
-            <button
-              type="button"
-              className="icon-btn sm"
-              title="重新检测本机 CLI"
-              disabled={detecting}
-              onClick={() => {
-                setDetecting(true);
-                void refreshAgents().finally(() => setDetecting(false));
-              }}
-            >
-              <RefreshCw size={12} className={detecting ? "spin" : ""} />
+      <section className="s-group">
+        <div className="s-card">
+          <div className="s-row">
+            <div className="s-row-meta">
+              {splitTranslate ? (
+                <span className="s-row-label">
+                  问答：<strong>{chatBase?.name ?? "未设置"}</strong> · 字幕翻译：<strong>{trSummaryName}</strong>
+                </span>
+              ) : (
+                <span className="s-row-label">
+                  当前默认：<strong>{chatBase?.name ?? "未设置"}</strong>
+                  <span className="muted small"> · 管问答、导读与字幕翻译</span>
+                </span>
+              )}
+              {!isProviderReady(chatBase) && (
+                <span className="error-text small">当前默认模型尚未验证或未配 Key</span>
+              )}
+            </div>
+            <button type="button" className="link-btn" onClick={() => setDivisionOpen((v) => !v)}>
+              <span>{splitTranslate ? "已拆分翻译模型" : "问答与翻译分用不同模型"}</span>
+              <ChevronDown size={13} className={divisionOpen ? "flip" : ""} />
             </button>
           </div>
-          {sortedAgents.length === 0 ? (
-            <p className="muted small ai-list-empty">未检测到本机 CLI</p>
-          ) : (
-            sortedAgents.map((a) => {
-              const p = allProviders.find((x) => x.id === a.kind);
-              const st = CLI_STATUS[p?.login ?? a.login];
-              const isDef = chatProviderId === a.kind;
-              return (
-                <button
-                  key={a.kind}
-                  type="button"
-                  className={`provider-item ${editId === a.kind ? "on" : ""}`}
-                  onClick={() => setEditId(a.kind)}
-                >
-                  <span className="pi-main">
-                    <span className="clamp1">{AGENT_META[a.kind]?.name ?? a.kind}</span>
-                    <small>{isDef ? "默认" : st.text}</small>
-                  </span>
-                  <span className={`ms-dot ${st.tone}`} />
-                </button>
-              );
-            })
+
+          {divisionOpen && (
+            <div className="ai-tr-split">
+              <div className="two">
+                <label>
+                  <span>默认问答与导读</span>
+                  <select value={chatProviderId} onChange={(e) => void selectChatProvider(e.target.value)}>
+                    {!readyProviders.some((p) => p.id === chatProviderId) && chatBase && (
+                      <option value={chatBase.id}>{chatBase.name}（待验证/未配置）</option>
+                    )}
+                    {readyProviders.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label>
+                  <span>字幕批量翻译</span>
+                  <select
+                    value={prefs.translateProviderId || "follow"}
+                    onChange={(e) => savePrefs({ translateProviderId: e.target.value, translateModel: "" })}
+                  >
+                    <option value="follow">跟随问答默认模型（省去重复配置）</option>
+                    {prefs.translateProviderId &&
+                      prefs.translateProviderId !== "follow" &&
+                      !readyProviders.some((p) => p.id === prefs.translateProviderId) &&
+                      trTarget && (
+                        <option value={trTarget.id}>指定：{trTarget.name}（待验证/未配置）</option>
+                      )}
+                    {readyProviders.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        指定：{p.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              {prefs.translateProviderId && prefs.translateProviderId !== "follow" && trTarget && (
+                <label>
+                  <span>翻译专用子模型（可将翻译拆给更轻快的模型）</span>
+                  <select
+                    value={prefs.translateModel || ""}
+                    onChange={(e) => savePrefs({ translateModel: e.target.value })}
+                  >
+                    <option value="">跟随「{trTarget.name}」的默认模型</option>
+                    {trSubModels.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+            </div>
           )}
 
-          <div className="ai-group-h" style={{ marginTop: 8 }}>
-            <span>API 模型 · 按量付费</span>
+          <div className="s-row ai-tr-main">
+            <div className="ai-tr-controls">
+              <span className="s-row-label">翻译偏好</span>
+              <div className="seg-control" role="radiogroup" aria-label="翻译方式">
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={prefs.translateQuality !== "best"}
+                  className={prefs.translateQuality === "fast" ? "on" : ""}
+                  onClick={() => savePrefs({ translateQuality: "fast" })}
+                  title="一遍结合上下文与术语表翻完，速度最快"
+                >
+                  快速
+                </button>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={prefs.translateQuality === "best"}
+                  className={prefs.translateQuality === "best" ? "on" : ""}
+                  onClick={() => savePrefs({ translateQuality: "best" })}
+                  title="翻完再通读润色一遍，更自然，耗时约加倍"
+                >
+                  精翻
+                </button>
+              </div>
+              <label className="check" title="开启后拿到外文字幕会自动发起翻译，消耗所选模型额度">
+                <input
+                  type="checkbox"
+                  checked={prefs.autoTranslateOnTranscript}
+                  onChange={(e) => savePrefs({ autoTranslateOnTranscript: e.target.checked })}
+                />
+                <span>拿到外文字幕后自动精译</span>
+              </label>
+            </div>
           </div>
-          {coreApi.map((p) => {
-            const configured = !p.needsKey || !!keyStatus[p.id];
-            const isDef = chatProviderId === p.id;
-            const sub = isDef ? "默认" : !p.needsKey ? "免 Key" : configured ? "已配 Key" : "未配置";
-            return (
-              <button
-                key={p.id}
-                type="button"
-                className={`provider-item ${editId === p.id ? "on" : ""}`}
-                onClick={() => setEditId(p.id)}
-              >
-                <span className="pi-main">
-                  <span className="clamp1">{p.name}</span>
-                  <small>{sub}</small>
-                </span>
-                <span className={`ms-dot ${configured ? "ok" : "idle"}`} />
-              </button>
-            );
-          })}
-          {extraApi.length > 0 && (
-            <>
-              <button
-                type="button"
-                className="link-btn ai-more-btn"
-                onClick={() => setMoreApiOpen((v) => !v)}
-              >
-                <ChevronDown size={12} className={moreApiOpen ? "flip" : ""} />
-                <span>{moreApiOpen ? "收起其他 API" : `更多 API 服务商（${extraApi.length}）`}</span>
-              </button>
-              {moreApiOpen &&
-                extraApi.map((p) => {
-                  const configured = !p.needsKey || !!keyStatus[p.id];
-                  const isDef = chatProviderId === p.id;
-                  const sub = isDef ? "默认" : !p.needsKey ? "免 Key" : configured ? "已配 Key" : "未配置";
-                  return (
-                    <button
-                      key={p.id}
-                      type="button"
-                      className={`provider-item ${editId === p.id ? "on" : ""}`}
-                      onClick={() => setEditId(p.id)}
-                    >
-                      <span className="pi-main">
-                        <span className="clamp1">{p.name}</span>
-                        <small>{sub}</small>
-                      </span>
-                      <span className={`ms-dot ${configured ? "ok" : "idle"}`} />
-                    </button>
-                  );
-                })}
-            </>
-          )}
+        </div>
+      </section>
+
+      <section className="s-group">
+        <div className="s-group-head">
+          <span className="s-group-title">服务商与模型配置</span>
         </div>
 
-        <div className="ai-detail">
+        <div className="s-card ai-workbench">
+          <div className="ai-wb-nav">
+            <div className="ai-group-h">本机 AI · 免 Key</div>
+            {sortedAgents.length === 0 ? (
+              <p className="muted small ai-list-empty">未检测到本机 CLI</p>
+            ) : (
+              sortedAgents.map((a) => {
+                const p = allProviders.find((x) => x.id === a.kind);
+                const st = CLI_STATUS[p?.login ?? a.login];
+                const isDef = chatProviderId === a.kind;
+                const tag = isDef ? "默认" : st.text;
+                const toneClass = isDef || st.tone === "ok" ? "ok" : st.tone === "warn" ? "warn" : "";
+                return (
+                  <button
+                    key={a.kind}
+                    type="button"
+                    className={`ai-wb-item ${editId === a.kind ? "on" : ""}`}
+                    onClick={() => setEditId(a.kind)}
+                  >
+                    <span className="ai-wb-name clamp1">{AGENT_META[a.kind]?.name ?? a.kind}</span>
+                    <span className={`ai-wb-tag ${toneClass}`}>{tag}</span>
+                  </button>
+                );
+              })
+            )}
+
+            <div className="ai-group-h spaced">API 模型 · 按量付费</div>
+            {coreApi.map(renderApiRow)}
+            {extraApi.length > 0 && (
+              <>
+                <button
+                  type="button"
+                  className="link-btn ai-more-btn"
+                  onClick={() => setMoreApiOpen((v) => !v)}
+                >
+                  <ChevronDown size={12} className={moreApiOpen ? "flip" : ""} />
+                  <span>{moreApiOpen ? "收起其他 API" : `更多 API (${extraApi.length})`}</span>
+                </button>
+                {moreApiOpen && extraApi.map(renderApiRow)}
+              </>
+            )}
+          </div>
+
           {selectedAgent && selectedProvider ? (
             <AgentDetailPanel
               agent={selectedAgent}
@@ -649,34 +734,43 @@ export function AiSettingsSection() {
               onSetDefault={() => void selectChatProvider(selectedAgent.kind)}
             />
           ) : activePreset ? (
-            <div className="provider-form">
+            <div className="ai-wb-detail">
               <div className="ms-head">
                 <div>
                   <p className="ms-title">{activePreset.name}</p>
-                  <p className="muted small">
-                    {activePreset.needsKey ? "API Key 仅存本机系统钥匙串" : "本机运行服务，无需 API Key"}
+                  <p className="ai-sub-meta">
+                    <span>{activePreset.needsKey ? "API Key 仅存本机系统钥匙串" : "本机运行服务，无需 API Key"}</span>
+                    {activePreset.keyUrl && (
+                      <a className="link-btn" href={activePreset.keyUrl} target="_blank" rel="noreferrer">
+                        申请 Key <ExternalLink size={11} />
+                      </a>
+                    )}
                   </p>
                 </div>
+
                 <div className="row-tight">
-                  {activePreset.keyUrl && (
-                    <a className="link-btn" href={activePreset.keyUrl} target="_blank" rel="noreferrer">
-                      申请 Key <ExternalLink size={11} />
-                    </a>
-                  )}
                   <button
                     type="button"
-                    className={`btn sm ${chatProviderId === activePreset.id ? "" : "primary"}`}
-                    disabled={chatProviderId === activePreset.id}
-                    onClick={() => void selectChatProvider(activePreset.id)}
+                    className="btn sm"
+                    disabled={testingConn}
+                    onClick={() => void handleTestModel()}
                   >
-                    {chatProviderId === activePreset.id ? (
-                      <>
-                        <Check size={13} /> 当前默认
-                      </>
-                    ) : (
-                      "设为默认"
-                    )}
+                    {testingConn ? <Loader2 size={13} className="spin" /> : null}
+                    <span>测试连接</span>
                   </button>
+                  {chatProviderId === activePreset.id ? (
+                    <span className="pill ok">
+                      <Check size={12} /> 当前默认
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn sm primary"
+                      onClick={() => void selectChatProvider(activePreset.id)}
+                    >
+                      设为默认
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -700,26 +794,19 @@ export function AiSettingsSection() {
                 <p className="muted small">确保本机 Ollama 已启动即可直接测试或设为默认。</p>
               )}
 
-              <div className="row-actions">
-                <button
-                  type="button"
-                  className="btn sm"
-                  disabled={testingConn}
-                  onClick={() => void handleTestModel()}
-                >
-                  {testingConn ? <Loader2 size={13} className="spin" /> : null} 测试连接
-                </button>
-                {connMsg && (
-                  <span className={connMsg.ok ? "ok-text small" : "error-text small"}>{connMsg.text}</span>
-                )}
-                <span className="spacer" />
+              {connMsg && (
+                <p className={connMsg.ok ? "ok-text small" : "error-text small"}>{connMsg.text}</p>
+              )}
+
+              <div className="row-between">
                 <button type="button" className="link-btn" onClick={() => setShowAdvanced((v) => !v)}>
-                  高级设置 <ChevronDown size={12} className={showAdvanced ? "flip" : ""} />
+                  <span>高级设置（接口地址与模型名）</span>
+                  <ChevronDown size={12} className={showAdvanced ? "flip" : ""} />
                 </button>
               </div>
 
               {showAdvanced && (
-                <div className="stack" style={{ paddingTop: 8, borderTop: "1px solid var(--line)" }}>
+                <div className="ai-advanced-panel">
                   <label>
                     <span>接口地址 (Base URL)</span>
                     <input
@@ -760,108 +847,13 @@ export function AiSettingsSection() {
             </div>
           ) : null}
         </div>
-      </div>
 
-      <div>
-        <button type="button" className="link-btn" onClick={() => setDivisionOpen((v) => !v)}>
-          <ChevronDown size={13} className={divisionOpen ? "flip" : ""} />
-          <span>问答和翻译分别用不同模型</span>
-        </button>
-
-        {divisionOpen && (
-          <div className="ai-adv-box">
-            <div className="two">
-              <label>
-                <span>默认问答与导读</span>
-                <select value={chatProviderId} onChange={(e) => void selectChatProvider(e.target.value)}>
-                  {!readyProviders.some((p) => p.id === chatProviderId) && chatBase && (
-                    <option value={chatBase.id}>{chatBase.name}（待验证/未配置）</option>
-                  )}
-                  {readyProviders.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label>
-                <span>字幕批量翻译</span>
-                <select
-                  value={prefs.translateProviderId || "follow"}
-                  onChange={(e) => savePrefs({ translateProviderId: e.target.value, translateModel: "" })}
-                >
-                  <option value="follow">跟随问答默认模型（省去重复配置）</option>
-                  {prefs.translateProviderId &&
-                    prefs.translateProviderId !== "follow" &&
-                    !readyProviders.some((p) => p.id === prefs.translateProviderId) &&
-                    trTarget && (
-                      <option value={trTarget.id}>指定：{trTarget.name}（待验证/未配置）</option>
-                    )}
-                  {readyProviders.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      指定：{p.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-
-            {prefs.translateProviderId && prefs.translateProviderId !== "follow" && trTarget && (
-              <label>
-                <span>翻译专用子模型（可将翻译拆给更轻快的模型）</span>
-                <select
-                  value={prefs.translateModel || ""}
-                  onChange={(e) => savePrefs({ translateModel: e.target.value })}
-                >
-                  <option value="">跟随「{trTarget.name}」的默认模型</option>
-                  {trSubModels.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-
-            <div className="reading-row">
-              <div>
-                <span>翻译方式</span>
-                <p className="muted small">
-                  {prefs.translateQuality === "best"
-                    ? "翻完再通读润色一遍，更自然，耗时约加倍"
-                    : "一遍结合上下文与术语表翻完，速度最快"}
-                </p>
-              </div>
-              <div className="seg-control">
-                <button
-                  type="button"
-                  className={prefs.translateQuality === "fast" ? "on" : ""}
-                  onClick={() => savePrefs({ translateQuality: "fast" })}
-                >
-                  快速
-                </button>
-                <button
-                  type="button"
-                  className={prefs.translateQuality === "best" ? "on" : ""}
-                  onClick={() => savePrefs({ translateQuality: "best" })}
-                >
-                  精翻
-                </button>
-              </div>
-            </div>
-
-            <label className="check">
-              <input
-                type="checkbox"
-                checked={prefs.autoTranslateOnTranscript}
-                onChange={(e) => savePrefs({ autoTranslateOnTranscript: e.target.checked })}
-              />
-              <span>拿到外文字幕后自动开始精译（默认关闭，开启将自动消耗所选模型额度）</span>
-            </label>
-          </div>
+        {selectedAgent && (
+          <p className="s-foot-note">
+            注：字幕与问题仅交给本机 {AGENT_META[selectedAgent.kind].name} 在隔离空目录中纯文本处理，禁止调用外部工具与读写文件；受本地 CLI 机制影响，大批量并发翻译优先推荐直连 API 模型。
+          </p>
         )}
-      </div>
+      </section>
     </div>
   );
 }

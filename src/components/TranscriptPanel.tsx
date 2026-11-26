@@ -5,12 +5,14 @@ import {
   BookA,
   CheckCircle2,
   ChevronDown,
+  Clock,
   Download,
   Ellipsis,
   Languages,
   Loader2,
   Mic,
   RefreshCw,
+  RotateCcw,
   Search,
   Square,
   X,
@@ -31,6 +33,13 @@ import {
   useJobs,
 } from "../lib/jobs";
 import { CLOUD_ASR_PRESETS } from "../lib/providers";
+import {
+  alignSegmentToTime,
+  formatOffsetLabel,
+  toPlaybackTime,
+  toSubtitleTime,
+  useSubAlign,
+} from "../lib/subAlign";
 import { buildBlocks, downloadTextFile, renderTranscript, safeFileName, type SubFormat } from "../lib/subexport";
 import { computeWindow, rowBounds, VIRTUAL_OVERSCAN, VIRTUAL_THRESHOLD, type VirtualWindow } from "../lib/virtualList";
 import { resolveLocalModelId, useStore } from "../store";
@@ -480,7 +489,15 @@ export function TranscriptPanel({ ep }: { ep: Episode }) {
       openSettings: s.openSettings,
     })),
   );
-  const active = useStore((s) => (s.current?.id === ep.id ? activeIndex(segments, s.time) : -1));
+  const offset = useSubAlign((s) => s.offsets[ep.id] ?? 0);
+  const { setOffset, nudgeOffset, resetOffset } = useSubAlign(
+    useShallow((s) => ({
+      setOffset: s.setOffset,
+      nudgeOffset: s.nudgeOffset,
+      resetOffset: s.resetOffset,
+    })),
+  );
+  const active = useStore((s) => (s.current?.id === ep.id ? activeIndex(segments, toSubtitleTime(s.time, offset)) : -1));
   const savePrefs = useStore((s) => s.savePrefs);
   const getTranslateProvider = useStore((s) => s.getTranslateProvider);
   const isProviderReady = useStore((s) => s.isProviderReady);
@@ -495,6 +512,8 @@ export function TranscriptPanel({ ep }: { ep: Episode }) {
   const [hit, setHit] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
   const [glossaryOpen, setGlossaryOpen] = useState(false);
+  const [alignOpen, setAlignOpen] = useState(false);
+  const [pickAlign, setPickAlign] = useState(false);
   const menuBoxRef = useRef<HTMLDivElement>(null);
 
   const wantsZh = useMemo(() => !isMostlyChinese(segments), [segments]);
@@ -583,14 +602,25 @@ export function TranscriptPanel({ ep }: { ep: Episode }) {
     followRef.current = true;
     prevActiveRef.current = -1;
     setOffscreen(null);
+    setAlignOpen(false);
+    setPickAlign(false);
   }, [ep.id]);
 
   const onSeek = useCallback(
     (t: number) => {
+      if (pickAlign) {
+        const st = useStore.getState();
+        const curPlay = st.current?.id === ep.id ? st.time : ep.progress;
+        const nextOffset = alignSegmentToTime(t, curPlay);
+        setOffset(ep.id, nextOffset);
+        setPickAlign(false);
+        st.notify(`字幕已对齐（${formatOffsetLabel(nextOffset)}）`);
+        return;
+      }
       followRef.current = true;
-      seekToEpisode(ep, t);
+      seekToEpisode(ep, toPlaybackTime(t, offset));
     },
-    [ep, seekToEpisode],
+    [ep, offset, pickAlign, seekToEpisode, setOffset],
   );
 
   const scrollToPos = useCallback((pos: number, behavior: ScrollBehavior = "smooth") => {
@@ -801,6 +831,18 @@ export function TranscriptPanel({ ep }: { ep: Episode }) {
 
         <span className="spacer" />
 
+        {offset !== 0 && (
+          <button
+            type="button"
+            className="chip sm on"
+            title="当前字幕时间偏移，点击调整或重置"
+            onClick={() => setAlignOpen((v) => !v)}
+          >
+            <Clock size={11} />
+            <span>{formatOffsetLabel(offset)}</span>
+          </button>
+        )}
+
         {wantsZh && hasDone && !running && !trJob?.error && (
           <span className="tr-done-tag" title={`已译完 · ${doneSourceLabel}（${total} 段）`}>
             <CheckCircle2 size={12} />
@@ -881,6 +923,19 @@ export function TranscriptPanel({ ep }: { ep: Episode }) {
                 </>
               )}
               {!wantsZh && showRetranscribe && <div className="pop-sep" />}
+              {segments.length > 0 && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setAlignOpen((v) => !v);
+                    setPickAlign(false);
+                  }}
+                >
+                  <Clock size={14} /> 字幕时间对齐…
+                </button>
+              )}
               {showRetranscribe && (
                 <button
                   type="button"
@@ -971,6 +1026,67 @@ export function TranscriptPanel({ ep }: { ep: Episode }) {
               <div style={{ width: `${Math.max(3, (progressDone / total) * 100)}%` }} />
             </div>
           )}
+        </div>
+      )}
+
+      {alignOpen && (
+        <div className="align-bar">
+          <span className="align-status">
+            <Clock size={13} />
+            <span>{formatOffsetLabel(offset)}</span>
+          </span>
+          <div className="align-acts">
+            <button
+              type="button"
+              className="btn sm"
+              title="字幕提前 1 秒"
+              onClick={() => nudgeOffset(ep.id, -1)}
+            >
+              -1s
+            </button>
+            <button
+              type="button"
+              className="btn sm"
+              title="字幕延后 1 秒"
+              onClick={() => nudgeOffset(ep.id, 1)}
+            >
+              +1s
+            </button>
+            <button
+              type="button"
+              className={`btn sm ${pickAlign ? "primary" : ""}`}
+              title="点击下方正在听到的那一句，将字幕直接对齐到当前播放时间"
+              onClick={() => setPickAlign((v) => !v)}
+            >
+              {pickAlign ? "请点下方当前句…" : "点句对齐"}
+            </button>
+            {offset !== 0 && (
+              <button
+                type="button"
+                className="icon-btn sm"
+                title="重置偏移"
+                aria-label="重置字幕偏移"
+                onClick={() => {
+                  resetOffset(ep.id);
+                  setPickAlign(false);
+                }}
+              >
+                <RotateCcw size={13} />
+              </button>
+            )}
+            <button
+              type="button"
+              className="icon-btn sm"
+              title="收起对齐栏"
+              aria-label="收起对齐栏"
+              onClick={() => {
+                setAlignOpen(false);
+                setPickAlign(false);
+              }}
+            >
+              <X size={13} />
+            </button>
+          </div>
         </div>
       )}
 

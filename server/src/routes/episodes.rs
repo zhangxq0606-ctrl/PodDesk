@@ -220,12 +220,25 @@ pub async fn fetch_official_transcript(State(state): State<Arc<AppState>>, AxumP
         if let Err(e) = db::save_transcript(&conn, &tr) {
             return api_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string());
         }
+        let mut backfilled_duration = None;
+        if ep.duration.is_none_or(|d| d <= 0.0) {
+            if let Some(dur) = info.duration.filter(|&d| d.is_finite() && d > 0.0) {
+                if db::update_episode_duration_if_missing(&conn, &ep.id, dur).unwrap_or(false) {
+                    backfilled_duration = Some(dur);
+                }
+            }
+        }
         if let Some(items) = &aligned_zh {
             if let Ok(payload) = serde_json::to_string(&json!({ "lang": "zh-CN", "items": items })) {
                 let _ = db::set_blob(&conn, &ep.id, "translation", &payload);
             }
         }
-        return Json(json!({ "transcript": tr, "alignedTranslation": aligned_zh })).into_response();
+        return Json(json!({
+            "transcript": tr,
+            "alignedTranslation": aligned_zh,
+            "duration": backfilled_duration,
+        }))
+        .into_response();
     }
 
     if let Some(url) = ep.transcript_url.as_deref() {
@@ -553,11 +566,11 @@ pub async fn episode_stream_url(
     AxumPath(id): AxumPath<String>,
     Query(q): Query<StreamQuery>,
 ) -> Response {
-    let video_id = {
+    let (video_id, existing_dur) = {
         let conn = state.db_lock();
         match db::get_episode(&conn, &id) {
             Ok(Some(ep)) => match ep.video_id {
-                Some(vid) => vid,
+                Some(vid) => (vid, ep.duration),
                 None => return api_error(StatusCode::BAD_REQUEST, "该单集不是 YouTube 视频"),
             },
             Ok(None) => return api_error(StatusCode::NOT_FOUND, "单集不存在"),
@@ -575,7 +588,18 @@ pub async fn episode_stream_url(
     })
     .await
     {
-        Ok(url) => Json(json!({ "url": url })).into_response(),
+        Ok(stream) => {
+            let mut backfilled_dur = None;
+            if existing_dur.is_none_or(|d| d <= 0.0) {
+                if let Some(dur) = stream.duration.filter(|&d| d.is_finite() && d > 0.0) {
+                    let conn = state.db_lock();
+                    if db::update_episode_duration_if_missing(&conn, &id, dur).unwrap_or(false) {
+                        backfilled_dur = Some(dur);
+                    }
+                }
+            }
+            Json(json!({ "url": stream.url, "duration": backfilled_dur })).into_response()
+        }
         Err(e) => api_error(StatusCode::BAD_GATEWAY, e.to_string()),
     }
 }

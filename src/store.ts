@@ -48,6 +48,7 @@ export interface PlayerHandle {
   toggle: () => void;
   play: () => void;
   setRate: (rate: number) => void;
+  maxRate?: number;
 }
 
 export interface Prefs {
@@ -201,6 +202,7 @@ interface AppStore {
   settingsOpen: boolean;
   settingsSection: SettingsSection;
   settingsTargetId: string | null;
+  networkDiagSeq: number;
   importOpen: boolean;
   subscribeOpen: boolean;
   updateInfo: UpdateInfo | null;
@@ -212,6 +214,7 @@ interface AppStore {
   setNotice: (notice: { ok: boolean; text: string; action?: { label: string; run: () => void } } | null) => void;
   notify: (text: string, ok?: boolean, action?: { label: string; run: () => void }) => void;
   openSettings: (section?: SettingsSection, targetId?: string | null) => void;
+  openNetworkDiagnostics: () => void;
   closeSettings: () => void;
   setImportOpen: (open: boolean) => void;
   setSubscribeOpen: (open: boolean) => void;
@@ -243,6 +246,7 @@ interface AppStore {
   deleteEpisode: (id: string) => Promise<void>;
   toggleEpisodeCompleted: (ep: Episode, next?: boolean) => Promise<void>;
   touchEpisodeLocal: (ep: Episode) => void;
+  syncEpisodeDurationLocal: (id: string, duration: number) => void;
   syncProgressLocal: (id: string, seconds: number, completed?: boolean, epHint?: Episode) => void;
   importText: (opts: { title?: string; text: string; format?: "auto" | "srt" | "vtt" | "txt" }) => Promise<void>;
   importMedia: (file: File, title?: string) => Promise<void>;
@@ -326,6 +330,7 @@ export const useStore = create<AppStore>((set, get) => ({
   settingsOpen: false,
   settingsSection: "asr",
   settingsTargetId: null,
+  networkDiagSeq: 0,
   importOpen: false,
   subscribeOpen: false,
   updateInfo: null,
@@ -338,6 +343,8 @@ export const useStore = create<AppStore>((set, get) => ({
   notify: (text, ok = true, action) => set({ notice: { ok, text, action } }),
   openSettings: (section = "asr", targetId = null) =>
     set({ settingsOpen: true, settingsSection: section, settingsTargetId: targetId ?? null }),
+  openNetworkDiagnostics: () =>
+    set((s) => ({ settingsOpen: true, settingsSection: "network", settingsTargetId: null, networkDiagSeq: s.networkDiagSeq + 1 })),
   closeSettings: () => set({ settingsOpen: false, settingsTargetId: null }),
   setImportOpen: (open) => set({ importOpen: open }),
   setSubscribeOpen: (open) => set({ subscribeOpen: open }),
@@ -818,6 +825,24 @@ export const useStore = create<AppStore>((set, get) => ({
       return {
         episodeCache: { ...s.episodeCache, [touched.id]: touched },
         ...(qualifies ? { recentEpisodes: upsertRecentTop(s.recentEpisodes, touched) } : {}),
+      };
+    });
+  },
+
+  syncEpisodeDurationLocal: (id, duration) => {
+    if (!Number.isFinite(duration) || duration <= 0) return;
+    set((s) => {
+      const patch = (e: Episode): Episode => (e.id === id && (!e.duration || e.duration <= 0) ? { ...e, duration } : e);
+      const nextShowEps: Record<string, Episode[]> = {};
+      for (const [k, list] of Object.entries(s.showEpisodes)) nextShowEps[k] = list.map(patch);
+      const cached = s.episodeCache[id];
+      return {
+        recentEpisodes: s.recentEpisodes.map(patch),
+        latestEpisodes: s.latestEpisodes.map(patch),
+        showEpisodes: nextShowEps,
+        current: s.current?.id === id ? patch(s.current) : s.current,
+        length: s.current?.id === id && (!s.length || s.length <= 0) ? duration : s.length,
+        episodeCache: cached ? { ...s.episodeCache, [id]: patch(cached) } : s.episodeCache,
       };
     });
   },

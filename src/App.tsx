@@ -241,6 +241,11 @@ function AppShell() {
       } else if (e.key.toLowerCase() === "c" && !mod) {
         e.preventDefault();
         cycleSubtitleMode();
+      } else if (e.key.toLowerCase() === "f" && !mod && !e.altKey && !e.shiftKey) {
+        if (s.view.kind === "episode") {
+          e.preventDefault();
+          window.dispatchEvent(new CustomEvent("poddesk:toggle-fullscreen"));
+        }
       }
     };
 

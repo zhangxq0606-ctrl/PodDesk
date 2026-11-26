@@ -50,6 +50,7 @@ pub fn find_ytdlp(data: &Path) -> Option<PathBuf> {
 }
 
 const YTDLP_GITHUB: &str = "https://github.com/yt-dlp/yt-dlp/releases/latest/download";
+pub const YTDLP_GITHUB_SUMS: &str = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/SHA2-256SUMS";
 
 fn ytdlp_asset() -> &'static str {
     if cfg!(target_os = "macos") {
@@ -138,7 +139,7 @@ pub async fn ytdlp(data: &Path) -> Result<PathBuf> {
     Ok(own)
 }
 
-async fn ytdlp_version(bin: &Path) -> Option<String> {
+pub async fn ytdlp_version(bin: &Path) -> Option<String> {
     let mut cmd = tokio::process::Command::new(bin);
     cmd.arg("--version").kill_on_drop(true);
     #[cfg(windows)]
@@ -426,25 +427,32 @@ async fn youtube_audio_with(
     Err(anyhow!("没有找到下载的音频"))
 }
 
+#[derive(Clone, Debug)]
+pub struct StreamInfo {
+    pub url: String,
+    pub duration: Option<f64>,
+}
+
 pub async fn youtube_stream_url(
     data: &Path,
     ytdlp: &Path,
     video_id: &str,
     fresh: bool,
     yt_login: Option<Arc<dyn crate::YtLoginBridge>>,
-) -> Result<String> {
+) -> Result<StreamInfo> {
     let key = format!("{video_id}|mp4");
     if fresh {
         streams::forget(&key);
-    } else if let Some(url) = streams::get(&key) {
-        return Ok(url);
+    } else if let Some(hit) = streams::get(&key) {
+        return Ok(hit);
     }
-    let url = with_bot_fallback(data, yt_login, |extra| async move { stream_once(ytdlp, video_id, &extra).await }).await?;
-    streams::put(&key, &url);
-    Ok(url)
+    let info = with_bot_fallback(data, yt_login, |extra| async move { stream_once(ytdlp, video_id, &extra).await }).await?;
+    streams::put(&key, &info.url, info.duration);
+    Ok(info)
 }
 
 pub mod streams {
+    use super::StreamInfo;
     use std::collections::HashMap;
     use std::path::PathBuf;
     use std::sync::Mutex;
@@ -456,6 +464,8 @@ pub mod streams {
         until: u64,
         #[serde(default)]
         proxy: String,
+        #[serde(default)]
+        duration: Option<f64>,
     }
 
     static FILE: once_cell::sync::OnceCell<PathBuf> = once_cell::sync::OnceCell::new();
@@ -490,17 +500,20 @@ pub mod streams {
         digits.parse().ok()
     }
 
-    pub fn get(key: &str) -> Option<String> {
+    pub fn get(key: &str) -> Option<StreamInfo> {
         let proxy = crate::net::effective_proxy();
         get_for_proxy(key, &proxy)
     }
 
-    pub fn get_for_proxy(key: &str, proxy: &str) -> Option<String> {
+    pub fn get_for_proxy(key: &str, proxy: &str) -> Option<StreamInfo> {
         let t = now();
         let mut map = MAP.lock().unwrap_or_else(|e| e.into_inner());
         let entry = map.get(key)?;
         if entry.until > t && entry.proxy == proxy {
-            return Some(entry.url.clone());
+            return Some(StreamInfo {
+                url: entry.url.clone(),
+                duration: entry.duration,
+            });
         }
         map.remove(key);
         persist(&map);
@@ -526,12 +539,12 @@ pub mod streams {
         }
     }
 
-    pub fn put(key: &str, url: &str) {
+    pub fn put(key: &str, url: &str, duration: Option<f64>) {
         let proxy = crate::net::effective_proxy();
-        put_for_proxy(key, url, &proxy);
+        put_for_proxy(key, url, duration, &proxy);
     }
 
-    pub fn put_for_proxy(key: &str, url: &str, proxy: &str) {
+    pub fn put_for_proxy(key: &str, url: &str, duration: Option<f64>, proxy: &str) {
         let t = now();
         let until = expiry(url).map(|e| e.saturating_sub(MARGIN)).unwrap_or(t + DEFAULT_LIFE);
         let mut map = MAP.lock().unwrap_or_else(|e| e.into_inner());
@@ -543,6 +556,7 @@ pub mod streams {
                     url: url.to_string(),
                     until,
                     proxy: proxy.to_string(),
+                    duration,
                 },
             );
         }
@@ -566,9 +580,9 @@ pub mod streams {
         #[test]
         fn forgets_cached_stream_url() {
             let k = format!("forget-test-{}", uuid::Uuid::new_v4());
-            put_for_proxy(&k, "https://example.com/video.mp4", "http://127.0.0.1:7890");
+            put_for_proxy(&k, "https://example.com/video.mp4", Some(120.0), "http://127.0.0.1:7890");
             assert_eq!(
-                get_for_proxy(&k, "http://127.0.0.1:7890").as_deref(),
+                get_for_proxy(&k, "http://127.0.0.1:7890").map(|s| s.url).as_deref(),
                 Some("https://example.com/video.mp4")
             );
             forget(&k);
@@ -579,21 +593,21 @@ pub mod streams {
         fn invalidates_stream_url_when_proxy_changes_or_clears() {
             let k1 = format!("proxy-test-1-{}", uuid::Uuid::new_v4());
             let k2 = format!("proxy-test-2-{}", uuid::Uuid::new_v4());
-            put_for_proxy(&k1, "https://example.com/v1.mp4", "http://127.0.0.1:7890");
+            put_for_proxy(&k1, "https://example.com/v1.mp4", None, "http://127.0.0.1:7890");
             assert_eq!(
-                get_for_proxy(&k1, "http://127.0.0.1:7890").as_deref(),
+                get_for_proxy(&k1, "http://127.0.0.1:7890").map(|s| s.url).as_deref(),
                 Some("https://example.com/v1.mp4")
             );
             assert!(get_for_proxy(&k1, "http://127.0.0.1:7897").is_none());
 
-            put_for_proxy(&k2, "https://example.com/v2.mp4", "http://127.0.0.1:7897");
+            put_for_proxy(&k2, "https://example.com/v2.mp4", None, "http://127.0.0.1:7897");
             clear();
             assert!(get_for_proxy(&k2, "http://127.0.0.1:7897").is_none());
         }
     }
 }
 
-async fn stream_once(ytdlp: &Path, video_id: &str, extra: &[String]) -> Result<String> {
+async fn stream_once(ytdlp: &Path, video_id: &str, extra: &[String]) -> Result<StreamInfo> {
     warm_ytdlp(ytdlp).await;
     let mut cmd = ytdlp_command(ytdlp);
     cmd.args(["-j", "--no-playlist", "--no-warnings"]).args(extra);
@@ -608,8 +622,9 @@ async fn stream_once(ytdlp: &Path, video_id: &str, extra: &[String]) -> Result<S
             String::from_utf8_lossy(&out.stderr).lines().last().unwrap_or("").chars().take(200).collect::<String>()
         )
     })?;
+    let duration = info["duration"].as_f64().filter(|&d| d.is_finite() && d > 0.0);
     let formats = info["formats"].as_array().cloned().unwrap_or_default();
-    formats
+    let url = formats
         .iter()
         .rev()
         .filter(|f| {
@@ -619,7 +634,8 @@ async fn stream_once(ytdlp: &Path, video_id: &str, extra: &[String]) -> Result<S
         })
         .max_by_key(|f| (f["ext"].as_str() == Some("mp4"), f["height"].as_i64().unwrap_or(0)))
         .and_then(|f| f["url"].as_str().map(str::to_string))
-        .ok_or_else(|| anyhow!("这个视频没有可直接播放的格式"))
+        .ok_or_else(|| anyhow!("这个视频没有可直接播放的格式"))?;
+    Ok(StreamInfo { url, duration })
 }
 
 #[cfg(test)]

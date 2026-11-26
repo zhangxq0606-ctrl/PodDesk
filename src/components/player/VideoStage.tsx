@@ -1,15 +1,16 @@
 import { useEffect, useRef, useState } from "react";
-import { ExternalLink, Loader2, Tv } from "lucide-react";
+import { Activity, ExternalLink, Loader2, Maximize2, Minimize2, Tv } from "lucide-react";
 import { pieceAt } from "../../lib/ai";
 import { api, type Episode } from "../../lib/api";
 import { useJobs } from "../../lib/jobs";
-import { useStore } from "../../store";
+import { useStore, type PlayerHandle } from "../../store";
 import {
   activeSegIndex,
   hideYouTubeCaptions,
   loadYouTubeApi,
   markYtBlocked,
   MEDIA_STALL_TIMEOUT_MS,
+  perceptualVolumeGain,
   persistProgress,
   requestYtStreamUrl,
   resetSavedProgress,
@@ -45,10 +46,14 @@ export function LocalVideoStage({
   ep,
   src,
   onFail,
+  onFullscreen,
+  isFullscreen,
 }: {
   ep: Episode;
   src: string;
   onFail?: (reason?: "error" | "timeout") => void;
+  onFullscreen?: () => void;
+  isFullscreen?: boolean;
 }) {
   const ref = useRef<HTMLVideoElement>(null);
   const onFailRef = useRef(onFail);
@@ -140,7 +145,7 @@ export function LocalVideoStage({
 
   useEffect(() => {
     if (!ref.current) return;
-    ref.current.volume = volume;
+    ref.current.volume = perceptualVolumeGain(volume);
     ref.current.muted = muted;
   }, [volume, muted]);
 
@@ -195,11 +200,33 @@ export function LocalVideoStage({
         }}
       />
       <SubtitleOverlay ep={ep} />
+      {onFullscreen && (
+        <button
+          type="button"
+          className="video-fs"
+          title={isFullscreen ? "退出全屏 (Esc / F)" : "全屏观看 (F)"}
+          aria-label={isFullscreen ? "退出全屏" : "全屏"}
+          onClick={(e) => {
+            e.stopPropagation();
+            onFullscreen();
+          }}
+        >
+          {isFullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+        </button>
+      )}
     </div>
   );
 }
 
-export function YouTubeStage({ ep }: { ep: Episode }) {
+export function YouTubeStage({
+  ep,
+  onFullscreen,
+  isFullscreen,
+}: {
+  ep: Episode;
+  onFullscreen?: () => void;
+  isFullscreen?: boolean;
+}) {
   const hostRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<YTPlayerInstance | null>(null);
   const directAbortRef = useRef<AbortController | null>(null);
@@ -330,13 +357,7 @@ export function YouTubeStage({ ep }: { ep: Episode }) {
     let disposed = false;
     let pollTimer: number | undefined;
     let readyTimer: number | undefined;
-    let handle: {
-      episodeId: string;
-      seek: (t: number) => void;
-      toggle: () => void;
-      play: () => void;
-      setRate: (r: number) => void;
-    } | null = null;
+    let handle: PlayerHandle | null = null;
 
     const fallbackFromHungIframe = (msg: string) => {
       if (disposed) return;
@@ -394,13 +415,14 @@ export function YouTubeStage({ ep }: { ep: Episode }) {
               playerRef.current = player;
               hideYouTubeCaptions(player);
               const prefs = useStore.getState().prefs;
-              player.setPlaybackRate?.(prefs.playbackRate);
-              player.setVolume?.(Math.round(prefs.volume * 100));
+              player.setPlaybackRate?.(Math.min(2, prefs.playbackRate));
+              player.setVolume?.(Math.round(perceptualVolumeGain(prefs.volume) * 100));
               if (prefs.muted) player.mute?.();
               else player.unMute?.();
 
-              handle = {
+              const nextHandle: PlayerHandle = {
                 episodeId: ep.id,
+                maxRate: 2,
                 seek: (t: number) => {
                   const s = useStore.getState();
                   if (s.current?.id === ep.id) {
@@ -422,7 +444,8 @@ export function YouTubeStage({ ep }: { ep: Episode }) {
                 },
                 setRate: (r: number) => player.setPlaybackRate?.(r),
               };
-              useStore.getState().offerPlayer(handle, { length: player.getDuration?.() || ep.duration || 0 });
+              handle = nextHandle;
+              useStore.getState().offerPlayer(nextHandle, { length: player.getDuration?.() || ep.duration || 0 });
 
               pollTimer = window.setInterval(() => {
                 const t = player.getCurrentTime?.();
@@ -506,13 +529,13 @@ export function YouTubeStage({ ep }: { ep: Episode }) {
   }, [ep.id, iframeLoadingSince]);
 
   useEffect(() => {
-    playerRef.current?.setPlaybackRate?.(rate);
+    playerRef.current?.setPlaybackRate?.(Math.min(2, rate));
   }, [rate]);
 
   useEffect(() => {
     const p = playerRef.current;
     if (!p) return;
-    p.setVolume?.(Math.round(volume * 100));
+    p.setVolume?.(Math.round(perceptualVolumeGain(volume) * 100));
     if (muted) p.mute?.();
     else p.unMute?.();
   }, [volume, muted]);
@@ -523,6 +546,8 @@ export function YouTubeStage({ ep }: { ep: Episode }) {
         ep={ep}
         src={fallbackUrl}
         onFail={(reason) => handleDirectFail(reason)}
+        onFullscreen={onFullscreen}
+        isFullscreen={isFullscreen}
       />
     );
   }
@@ -581,6 +606,13 @@ export function YouTubeStage({ ep }: { ep: Episode }) {
                   配置 cookies.txt
                 </button>
               )}
+              <button
+                type="button"
+                className="btn sm"
+                onClick={() => useStore.getState().openNetworkDiagnostics()}
+              >
+                <Activity size={13} /> 网络诊断
+              </button>
               <a
                 className="btn sm"
                 href={`https://www.youtube.com/watch?v=${ep.videoId}`}
@@ -601,6 +633,20 @@ export function YouTubeStage({ ep }: { ep: Episode }) {
       <div className="video-host" ref={hostRef} />
       <div className="video-shield" onClick={() => useStore.getState().player?.toggle()} />
       <SubtitleOverlay ep={ep} />
+      {onFullscreen && (
+        <button
+          type="button"
+          className="video-fs"
+          title={isFullscreen ? "退出全屏 (Esc / F)" : "全屏观看 (F)"}
+          aria-label={isFullscreen ? "退出全屏" : "全屏"}
+          onClick={(e) => {
+            e.stopPropagation();
+            onFullscreen();
+          }}
+        >
+          {isFullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+        </button>
+      )}
     </div>
   );
 }

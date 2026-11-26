@@ -7,7 +7,15 @@ import { AudioSubtitles } from "./AudioStage";
 import { isVideoMediaUrl } from "./playerUtils";
 import { LocalVideoStage, YouTubeStage } from "./VideoStage";
 
-export function MediaStage({ ep }: { ep: Episode }) {
+export function MediaStage({
+  ep,
+  onFullscreen,
+  isFullscreen,
+}: {
+  ep: Episode;
+  onFullscreen?: () => void;
+  isFullscreen?: boolean;
+}) {
   const { current, playing, loadingSince, load, playSoon } = useStore(
     useShallow((s) => ({
       current: s.current,
@@ -51,7 +59,7 @@ export function MediaStage({ ep }: { ep: Episode }) {
         </div>
       );
     }
-    return <YouTubeStage ep={ep} />;
+    return <YouTubeStage ep={ep} onFullscreen={onFullscreen} isFullscreen={isFullscreen} />;
   }
 
   if (ep.audioUrl && isVideoMediaUrl(ep.audioUrl)) {
@@ -72,7 +80,7 @@ export function MediaStage({ ep }: { ep: Episode }) {
         </div>
       );
     }
-    return <LocalVideoStage ep={ep} src={ep.audioUrl} />;
+    return <LocalVideoStage ep={ep} src={ep.audioUrl} onFullscreen={onFullscreen} isFullscreen={isFullscreen} />;
   }
 
   if (ep.audioUrl) {

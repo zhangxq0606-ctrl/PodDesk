@@ -180,12 +180,35 @@ export function EpisodeView({ id }: { id: string }) {
   const [ep, setEp] = useState<Episode | null>(cached ?? null);
   const [preferAudio, setPreferAudio] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const splitRef = useRef<HTMLDivElement>(null);
+  const videoWrapRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setNotesOpen(false);
     setPreferAudio(false);
   }, [id]);
+
+  useEffect(() => {
+    const onFs = () => {
+      setIsFullscreen(!!document.fullscreenElement && document.fullscreenElement === videoWrapRef.current);
+    };
+    const onToggle = () => {
+      const wrap = videoWrapRef.current;
+      if (!wrap) return;
+      if (document.fullscreenElement === wrap) {
+        void document.exitFullscreen().catch(() => {});
+      } else if (!document.fullscreenElement) {
+        void wrap.requestFullscreen?.().catch(() => {});
+      }
+    };
+    document.addEventListener("fullscreenchange", onFs);
+    window.addEventListener("poddesk:toggle-fullscreen", onToggle);
+    return () => {
+      document.removeEventListener("fullscreenchange", onFs);
+      window.removeEventListener("poddesk:toggle-fullscreen", onToggle);
+    };
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -436,9 +459,17 @@ export function EpisodeView({ id }: { id: string }) {
 
             <div className={`stage-body ${hasMedia ? "" : "is-text"}`}>
               {showVideo ? (
-                <div className="stage-video-wrap">
-                  <MediaStage ep={stageEp} />
-                  <Controls ep={stageEp} />
+                <div className="stage-video-wrap" ref={videoWrapRef}>
+                  <MediaStage
+                    ep={stageEp}
+                    isFullscreen={isFullscreen}
+                    onFullscreen={() => window.dispatchEvent(new CustomEvent("poddesk:toggle-fullscreen"))}
+                  />
+                  <Controls
+                    ep={stageEp}
+                    isFullscreen={isFullscreen}
+                    onFullscreen={() => window.dispatchEvent(new CustomEvent("poddesk:toggle-fullscreen"))}
+                  />
                 </div>
               ) : hasMedia ? (
                 <div className="stage-audio-wrap">

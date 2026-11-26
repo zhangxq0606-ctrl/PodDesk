@@ -20,6 +20,56 @@ use tauri::{
 struct ServerState(Mutex<Option<RunningServer>>);
 struct LastQuitPrompt(Mutex<Option<Instant>>);
 
+static WEBVIEW_PROXY: std::sync::OnceLock<Option<url::Url>> = std::sync::OnceLock::new();
+
+#[cfg(target_os = "macos")]
+fn macos_major() -> u32 {
+    std::process::Command::new("sw_vers")
+        .arg("-productVersion")
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8_lossy(&o.stdout).trim().split('.').next()?.parse().ok())
+        .unwrap_or(0)
+}
+
+fn parse_webview_proxy(raw: &str) -> Result<url::Url, &'static str> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return Err("none");
+    }
+    let normalized = if raw.contains("://") {
+        raw.to_string()
+    } else {
+        format!("http://{raw}")
+    };
+    let url: url::Url = normalized.parse().map_err(|_| "unsupported-proxy")?;
+    if !matches!(url.scheme(), "http" | "socks5") || url.host().is_none() || url.port().is_none() {
+        return Err("unsupported-proxy");
+    }
+    #[cfg(target_os = "macos")]
+    if macos_major() < 14 {
+        return Err("unsupported-os");
+    }
+    Ok(url)
+}
+
+pub(crate) fn webview_proxy() -> Option<url::Url> {
+    WEBVIEW_PROXY
+        .get_or_init(|| parse_webview_proxy(&podcast_desk_core::net::proxy()).ok())
+        .clone()
+}
+
+pub(crate) fn webview_proxy_status() -> &'static str {
+    let applied = webview_proxy();
+    match parse_webview_proxy(&podcast_desk_core::net::proxy()) {
+        Ok(now) if applied.as_ref() == Some(&now) => "app",
+        Ok(_) => "restart",
+        Err("none") if applied.is_some() => "restart",
+        Err("none") => "system",
+        Err(why) => why,
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct WindowState {
     width: f64,
@@ -347,6 +397,9 @@ fn main() {
             if valid_pos.is_none() {
                 win_builder = win_builder.center();
             }
+            if let Some(p) = webview_proxy() {
+                win_builder = win_builder.proxy_url(p);
+            }
             let win = win_builder.build()?;
 
             if let Some((x, y)) = valid_pos {
@@ -394,4 +447,19 @@ fn main() {
         }
         _ => {}
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_webview_proxy;
+
+    #[test]
+    fn parses_valid_webview_proxies_and_rejects_unsupported() {
+        assert_eq!(parse_webview_proxy(""), Err("none"));
+        assert!(parse_webview_proxy("http://127.0.0.1:7897").is_ok());
+        assert!(parse_webview_proxy("127.0.0.1:7890").is_ok());
+        assert!(parse_webview_proxy("socks5://127.0.0.1:1080").is_ok());
+        assert_eq!(parse_webview_proxy("https://127.0.0.1:7890"), Err("unsupported-proxy"));
+        assert_eq!(parse_webview_proxy("http://127.0.0.1"), Err("unsupported-proxy"));
+    }
 }

@@ -275,6 +275,17 @@ pub fn update_episode_published(conn: &Connection, id: &str, published: Option<i
     Ok(())
 }
 
+pub fn update_episode_duration_if_missing(conn: &Connection, id: &str, duration: f64) -> Result<bool> {
+    if !duration.is_finite() || duration <= 0.0 {
+        return Ok(false);
+    }
+    let changed = conn.execute(
+        "UPDATE episodes SET duration=?2 WHERE id=?1 AND (duration IS NULL OR duration <= 0)",
+        params![id, duration],
+    )?;
+    Ok(changed > 0)
+}
+
 pub fn mark_episodes_pub_verified(conn: &mut Connection, ids: &[String]) -> Result<()> {
     if ids.is_empty() {
         return Ok(());

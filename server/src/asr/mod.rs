@@ -21,7 +21,8 @@ pub use hardware::{
 };
 pub use media::{decode_16k_mono, write_wav};
 pub use ytdlp::{
-    find_ytdlp, has_cookies, save_cookies, streams, with_ytdlp, youtube_audio, youtube_stream_url,
+    find_ytdlp, has_cookies, save_cookies, streams, with_ytdlp, youtube_audio, youtube_stream_url, ytdlp_version,
+    StreamInfo,
 };
 
 #[derive(Default, Clone, Debug)]

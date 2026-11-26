@@ -80,16 +80,22 @@ fn notify_main(app: &AppHandle) {
 
 fn open_window_on_main(app: &AppHandle) -> Result<(), String> {
     if let Some(w) = app.get_webview_window(LABEL) {
+        let _ = w.unminimize();
         let _ = w.show();
         let _ = w.set_focus();
         return Ok(());
     }
     let handle = app.clone();
     let parsed_url: url::Url = SIGN_IN_URL.parse().map_err(|e| format!("登录地址无效：{e}"))?;
-    let win = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::External(parsed_url))
+    let mut builder = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::External(parsed_url))
         .title("登录 YouTube（用于视频与转写验证）")
         .inner_size(480.0, 680.0)
-        .user_agent(AGENT)
+        .user_agent(AGENT);
+    // Keep proxy arguments identical to main window; WebView2 rejects a second window with differing args.
+    if let Some(p) = crate::webview_proxy() {
+        builder = builder.proxy_url(p);
+    }
+    let win = builder
         .on_page_load(move |w, p| {
             if !matches!(p.event(), tauri::webview::PageLoadEvent::Finished) {
                 return;
@@ -107,6 +113,11 @@ fn open_window_on_main(app: &AppHandle) -> Result<(), String> {
         })
         .build()
         .map_err(|e| format!("无法打开 YouTube 登录窗口：{e}"))?;
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = win.remove_menu();
+    }
 
     let app_on_close = app.clone();
     win.on_window_event(move |event| {
@@ -149,6 +160,10 @@ impl YtLoginBridge for DesktopYtLogin {
             return None;
         }
         Some(jar_text(&cs))
+    }
+
+    fn webview_proxy_status(&self) -> &'static str {
+        crate::webview_proxy_status()
     }
 }
 

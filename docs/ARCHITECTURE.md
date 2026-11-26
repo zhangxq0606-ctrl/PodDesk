@@ -68,7 +68,7 @@
 
 - **本地服务边界**：仅绑定本机回环地址 `127.0.0.1`（默认 `14327`，被占时顺延 20 个端口），CORS 仅放行 `127.0.0.1` / `localhost` 来源，不暴露到局域网。
 - **REST JSON & 媒体接口**：
-  - 基础、设置与应用控制：`GET /api/health`（含 `githubMirror`、`activeJobs`）、`GET/POST /api/settings`（含 `proxy`、`githubMirror` 等）、`GET /api/jobs/active`、`POST /api/app/quit`、`GET/POST /api/keys/{provider}`（只返回 `{ hasKey }`）、`GET/POST /api/cookies`（只返回 `{ hasCookies }`）。
+  - 基础、设置与应用控制：`GET /api/health`（含 `githubMirror`、`activeJobs`）、`GET/POST /api/settings`（含 `proxy`、`githubMirror` 等）、`GET /api/network/check`（检测代理/YouTube/流节点/`yt-dlp` 与桌面 WebView 代理通路）、`GET /api/jobs/active`、`POST /api/app/quit`、`GET/POST /api/keys/{provider}`（只返回 `{ hasKey }`）、`GET/POST /api/cookies`（只返回 `{ hasCookies }`）。
   - 检索与订阅：`GET /api/search`、`GET /api/shows`、`DELETE /api/shows/{id}`、`POST /api/shows/{id}/refresh`、`POST /api/subscriptions`。
   - 单集与媒体：`GET /api/episodes`、`GET /api/episodes/recent`、`GET /api/episodes/{id}`、`DELETE /api/episodes/{id}`、`POST /api/episodes/{id}/progress`、`GET /api/episodes/{id}/stream-url`、`POST /api/episodes/import-text`、`POST /api/episodes/import-media`（multipart 最高 512 MB）、`GET /api/media/{file}`（支持 HTTP `206` 拖动）。
   - 字幕/翻译/Agent：`GET /api/episodes/{id}/transcript`、`POST /api/episodes/{id}/transcript/official`、`GET/POST /api/episodes/{id}/blobs/{kind}`、`POST /api/translate/google`、`GET /api/asr/models`、`POST /api/asr/probe`、`GET /api/agents`、`POST /api/agents/warm`、`POST /api/agents/probe`、`POST /api/agents/models`。
@@ -106,3 +106,4 @@
 | **长耗时 AI 任务绑定浏览器页签** | 术语抽取、分批字幕精译与流式问答状态完全由前端维护 | 刷新或关闭浏览器页签会中断长播客批量翻译；首版接受此边界，待长播客后台续跑成为刚需时再下沉至 Rust 任务队列 |
 | **前后端测试覆盖失衡** | 后端 Rust 现有 53 项通过单元测试（含 1 项系统代理忽略测试）；前端已引入 Vitest 并为核心纯逻辑（`ai`/`subexport`/`format`/`virtualList`）与 8 套内置主题 WCAG 2.1 对比度/OKLCH 引擎建立 5 组共 22 条单测 | **已建立前端护栏（2026-11-23）**；后续新增纯逻辑模块同步补充 `src/lib/__tests__/*.test.ts` |
 | **进程形态缺桌面级收口** | 已落地 `desktop/`（`Tauri v2` 薄桌面壳 + `podcast_desk_core` 共享后端库 + `rust-embed` 内嵌前端）：具备单实例防多开、系统托盘（含后台活跃任务退出二次保护）、窗口状态持久化（最小 `720×560`）、VC++ 运行库随包分发与 NSIS 安装包（暂未购买商业代码签名与启用 OTA 热更新），并已完成第二关 UI 质感与 8 套主题整合打包 | **已收口（2026-11-23）**；暂不引入商业签名费用 |
+| **外部 AI 助手反向接入（MCP）** | 目前仅支持工作台单向调用本机 CLI Agent；`podcast_desk_core` 已独立成库且含完整 SQLite 与 AI 能力，具备零重复实现抽为无头 MCP Server 的基础 | **延后至二期**：待知识沉淀/Obsidian 联动展开时按需新增本地 MCP 入口，暂不引入独立 CLI 安装器 |

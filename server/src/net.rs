@@ -230,6 +230,91 @@ fn refused(msg: &str) -> bool {
     m.contains("refused") || m.contains("os error 61") || m.contains("os error 111") || m.contains("os error 10061") || m.contains("连接被拒绝")
 }
 
+#[derive(serde::Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct NetCheckItem {
+    /// proxy | youtube | video | ytdlpSource | ytdlp
+    pub id: &'static str,
+    pub ok: bool,
+    pub ms: Option<u64>,
+    pub detail: String,
+}
+
+#[derive(serde::Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct NetworkReport {
+    pub checks: Vec<NetCheckItem>,
+    /// app | system | restart | unsupported-os | unsupported-proxy | browser
+    pub webview_proxy: String,
+    pub github_mirror: String,
+}
+
+/// A proxy address without user credentials, safe to display and copy into feedback reports.
+pub fn redact_proxy(p: &str) -> String {
+    match p.split_once("://") {
+        Some((scheme, rest)) => match rest.rsplit_once('@') {
+            Some((_, host)) => format!("{scheme}://***@{host}"),
+            None => p.to_string(),
+        },
+        None => match p.rsplit_once('@') {
+            Some((_, host)) => format!("***@{host}"),
+            None => p.to_string(),
+        },
+    }
+}
+
+async fn probe_url(id: &'static str, url: &str) -> NetCheckItem {
+    let start = std::time::Instant::now();
+    let res = tokio::time::timeout(Duration::from_secs(10), client().get(url).send()).await;
+    let ms = Some(start.elapsed().as_millis() as u64);
+    match res {
+        Ok(Ok(_)) => NetCheckItem { id, ok: true, ms, detail: String::new() },
+        Ok(Err(e)) => NetCheckItem { id, ok: false, ms, detail: describe(e).to_string() },
+        Err(_) => NetCheckItem { id, ok: false, ms, detail: "10 秒内没有响应".into() },
+    }
+}
+
+pub async fn run_network_check(data: &std::path::Path, webview_proxy_status: &str) -> NetworkReport {
+    let own = proxy();
+    let used = effective_proxy();
+    let proxy_item = NetCheckItem {
+        id: "proxy",
+        ok: true,
+        ms: None,
+        detail: if !own.trim().is_empty() {
+            format!("PodDesk: {}", redact_proxy(own.trim()))
+        } else if !used.trim().is_empty() {
+            format!("系统代理: {}", redact_proxy(used.trim()))
+        } else {
+            "直连（未检测到代理）".into()
+        },
+    };
+    let ytdlp_source_url = github_release_urls(crate::asr::ytdlp::YTDLP_GITHUB_SUMS)
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| crate::asr::ytdlp::YTDLP_GITHUB_SUMS.to_string());
+    let ytdlp_item = async {
+        match crate::asr::find_ytdlp(data) {
+            None => NetCheckItem { id: "ytdlp", ok: false, ms: None, detail: "未安装（首次回退播放或转写时会自动下载）".into() },
+            Some(bin) => match crate::asr::ytdlp_version(&bin).await {
+                Some(v) => NetCheckItem { id: "ytdlp", ok: true, ms: None, detail: v },
+                None => NetCheckItem { id: "ytdlp", ok: false, ms: None, detail: "无法执行 yt-dlp".into() },
+            },
+        }
+    };
+    let (youtube, video, source, ytdlp) = tokio::join!(
+        probe_url("youtube", "https://www.youtube.com/generate_204"),
+        probe_url("video", "https://redirector.googlevideo.com/generate_204"),
+        probe_url("ytdlpSource", &ytdlp_source_url),
+        ytdlp_item,
+    );
+    NetworkReport {
+        checks: vec![proxy_item, youtube, video, source, ytdlp],
+        webview_proxy: webview_proxy_status.to_string(),
+        github_mirror: github_mirror(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -246,6 +331,14 @@ mod tests {
 
         assert!(refused("tcp connect error: Connection refused (os error 10061)"));
         assert!(!refused("timed out"));
+    }
+
+    #[test]
+    fn redacts_proxy_credentials() {
+        assert_eq!(redact_proxy("http://127.0.0.1:7890"), "http://127.0.0.1:7890");
+        assert_eq!(redact_proxy("http://user:pass@proxy.example:8080"), "http://***@proxy.example:8080");
+        assert_eq!(redact_proxy("socks5://a:b@c@host:1080"), "socks5://***@host:1080");
+        assert_eq!(redact_proxy("user:pw@host:3128"), "***@host:3128");
     }
 
     #[test]

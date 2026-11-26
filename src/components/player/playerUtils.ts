@@ -1,7 +1,13 @@
 import { api, type Episode } from "../../lib/api";
 import { useStore } from "../../store";
 
-export const RATES = [0.8, 1, 1.15, 1.25, 1.5, 1.75, 2];
+export const RATES = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3];
+
+/** Perceptual cubic gain curve so 50% slider sounds like ~half loudness. */
+export function perceptualVolumeGain(level: number): number {
+  const clamped = Math.min(1, Math.max(0, level));
+  return clamped <= 0 ? 0 : clamped * clamped * clamped;
+}
 
 const VIDEO_EXT_RE = /\.(mp4|webm|mov|mkv)(?:$|\?)/i;
 export function isVideoMediaUrl(url?: string | null): boolean {
@@ -112,7 +118,12 @@ export function requestYtStreamUrl(
   const fetcher =
     opts?.fetcher ??
     ((id: string, isFresh: boolean, sig?: AbortSignal) =>
-      api.getStreamUrl(id, isFresh, sig).then((res) => res.url));
+      api.getStreamUrl(id, isFresh, sig).then((res) => {
+        if (res.duration && res.duration > 0) {
+          useStore.getState().syncEpisodeDurationLocal(id, res.duration);
+        }
+        return res.url;
+      }));
 
   if (signal?.aborted) {
     return Promise.reject(createAbortError());
@@ -322,19 +333,16 @@ export function activeSegIndex(segments: { start: number; end: number }[], time:
 export function stepRate(dir: 1 | -1): void {
   const s = useStore.getState();
   const cur = s.prefs.playbackRate;
-  const idx = RATES.indexOf(cur);
-  const next = RATES[Math.min(RATES.length - 1, Math.max(0, (idx < 0 ? RATES.indexOf(1) : idx) + dir))];
+  const max = s.player?.maxRate ?? RATES[RATES.length - 1];
+  const next = Math.min(
+    max,
+    dir > 0
+      ? (RATES.find((x) => x > cur + 0.001) ?? cur)
+      : ([...RATES].reverse().find((x) => x < cur - 0.001) ?? cur),
+  );
   s.player?.setRate(next);
   s.savePrefs({ playbackRate: next });
   s.notify(`倍速 ${next}×`);
-}
-
-export function cycleRate(): void {
-  const s = useStore.getState();
-  const idx = RATES.indexOf(s.prefs.playbackRate);
-  const next = RATES[(idx + 1) % RATES.length];
-  s.player?.setRate(next);
-  s.savePrefs({ playbackRate: next });
 }
 
 export function cycleSubtitleMode(): void {

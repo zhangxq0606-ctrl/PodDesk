@@ -30,6 +30,9 @@ pub trait YtLoginBridge: Send + Sync {
     fn open_login(&self) -> std::result::Result<(), String>;
     fn sign_out(&self) -> std::result::Result<(), String>;
     fn export_cookie_jar(&self) -> Option<String>;
+    fn webview_proxy_status(&self) -> &'static str {
+        "system"
+    }
 }
 
 pub struct ServerConfig {

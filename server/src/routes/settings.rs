@@ -93,14 +93,15 @@ pub async fn get_youtube_auth(State(state): State<Arc<AppState>>) -> Response {
 }
 
 pub async fn open_youtube_login(State(state): State<Arc<AppState>>) -> Response {
-    let Some(bridge) = state.yt_login.as_ref() else {
+    let Some(bridge) = state.yt_login.clone() else {
         return api_error(
             StatusCode::BAD_REQUEST,
             "当前仅桌面端支持内置 YouTube 登录窗口，请使用下方的 cookies.txt 导入",
         );
     };
-    match bridge.open_login() {
-        Ok(()) => Json(json!({ "ok": true })).into_response(),
+    match tokio::task::spawn_blocking(move || bridge.open_login()).await {
+        Ok(Ok(())) => Json(json!({ "ok": true })).into_response(),
+        Ok(Err(e)) => api_error(StatusCode::INTERNAL_SERVER_ERROR, e),
         Err(e) => api_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     }
 }
@@ -114,4 +115,14 @@ pub async fn logout_youtube(State(state): State<Arc<AppState>>) -> Response {
         Ok(Err(e)) => api_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
         Err(e) => api_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     }
+}
+
+pub async fn network_check(State(state): State<Arc<AppState>>) -> Response {
+    let wv_status = state
+        .yt_login
+        .as_ref()
+        .map(|b| b.webview_proxy_status())
+        .unwrap_or("browser");
+    let report = net::run_network_check(&state.data_dir, wv_status).await;
+    Json(report).into_response()
 }

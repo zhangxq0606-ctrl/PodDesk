@@ -266,6 +266,9 @@ export async function fetchOfficialSub(ep: Episode, silent = false): Promise<voi
     }));
     putTranslation(ep.id, { items, done, total: len, running: false, error: null });
     useStore.getState().markHasTranscript(ep.id);
+    if (res.duration && res.duration > 0) {
+      useStore.getState().syncEpisodeDurationLocal(ep.id, res.duration);
+    }
     if (!silent) useStore.getState().notify(`已获取字幕（${len} 段）`);
     const store = useStore.getState();
     if (

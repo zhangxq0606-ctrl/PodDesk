@@ -158,6 +158,32 @@
   white-space: nowrap;
 }
 
+.align-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--bg) 55%, var(--panel));
+  font-size: 12px;
+}
+
+.align-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.align-acts {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .pop-export-row > svg,
 .pop-export-row > span {
   flex: none;

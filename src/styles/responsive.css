@@ -34,28 +34,54 @@
     border-right: 0;
     border-bottom: 1px solid var(--line);
   }
-  .settings,
-  .provider-split {
+  .settings {
     grid-template-columns: 1fr;
     grid-template-rows: auto minmax(0, 1fr);
     gap: 12px;
   }
-  .ai-settings {
-    height: auto;
+  .ai-workbench {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 0;
   }
-  .provider-list {
+  .ai-wb-nav {
     border-right: 0;
     border-bottom: 1px solid var(--line);
-    padding-bottom: 8px;
-    max-height: 160px;
+    padding: 8px;
+    max-height: 170px;
+    overflow-y: auto;
   }
   .settings-nav {
     flex-direction: row;
     flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
   }
-  .shortcut-grid,
+  .settings-nav-list {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  .settings-nav-foot {
+    width: auto;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 10px;
+  }
+  .shortcut-groups,
+  .reading-preview,
   .two {
     grid-template-columns: 1fr;
+  }
+  .shortcut-col + .shortcut-col {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
+  .reading-preview-lane + .reading-preview-lane {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+    padding-left: 0;
+    padding-top: 10px;
   }
 }
 
