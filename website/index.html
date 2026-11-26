@@ -311,6 +311,25 @@ nav.site-nav .btn{min-height:36px;padding:0 18px;font-size:13.5px}
 }
 .btn.fin-dl svg.os-ico{width:15px;height:15px;fill:currentColor;stroke:none;flex:none}
 
+.fin-dl-status{
+  margin-top:16px;padding:10px 16px;border-radius:10px;
+  border:1px solid rgb(214 168 86/.28);background:rgb(19 20 22/.84);
+  display:flex;flex-direction:column;align-items:center;gap:4px;
+  font-size:12.5px;line-height:1.55;color:var(--text2);
+  max-width:min(640px,100%);
+}
+.fin-dl-status[hidden]{display:none}
+.fin-dl-msg{display:inline-flex;align-items:center;gap:8px;color:var(--text)}
+.fin-dl-dot{
+  width:7px;height:7px;border-radius:50%;background:var(--acc);flex:none;
+  box-shadow:0 0 8px rgb(214 168 86/.75);
+  animation:fin-pulse 1.3s ease-in-out infinite;
+}
+@keyframes fin-pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.82)}}
+.fin-dl-alt{color:var(--muted);display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:center}
+.fin-dl-alt a{color:var(--acc-text);text-decoration:none;border-bottom:1px solid rgb(214 168 86/.35);transition:color .18s,border-color .18s}
+.fin-dl-alt a:hover{color:var(--text);border-bottom-color:var(--acc)}
+
 .fin-meta{
   margin-top:20px;font:400 12.5px/1.6 var(--mono);color:var(--muted);
   display:flex;justify-content:center;align-items:center;gap:10px;flex-wrap:wrap;
@@ -453,7 +472,7 @@ nav.site-nav .btn{min-height:36px;padding:0 18px;font-size:13.5px}
 }
 @media(prefers-reduced-motion:reduce){
  .cap .en,.cap .zh,.wb-desc,[data-reveal],.wb-stage,.omni-text,.omni-badge{transition:none!important}
- .omni-caret{animation:none!important}
+ .omni-caret,.fin-dl-dot{animation:none!important}
  [data-reveal],.wb-stage{opacity:1!important;transform:none!important}
 }
 </style>
@@ -676,14 +695,24 @@ nav.site-nav .btn{min-height:36px;padding:0 18px;font-size:13.5px}
    <p class="fin-sub">开源免费、本地运行，原生支持 Windows 与 macOS。</p>
 
    <div class="fin-actions" id="fin-actions">
-    <a class="btn fin-dl btn-p" data-os="win" data-rel-href="winDownloadUrl" href="https://github.com/zhangxq0606-ctrl/PodDesk/releases/download/v0.2.2/PodDesk_0.2.2_x64-setup.exe" rel="noreferrer">
+    <a class="btn fin-dl btn-p" data-os="win" data-rel-href="winProxyUrl" data-rel-download="winFileName" href="/dl/v0.2.4/PodDesk_0.2.4_x64-setup.exe" download="PodDesk_0.2.4_x64-setup.exe">
      <svg class="os-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3h8.2v8.2H3V3zm9.8 0H21v8.2h-8.2V3zM3 12.8h8.2V21H3v-8.2zm9.8 0H21V21h-8.2v-8.2z"/></svg>
      <span>下载 Windows 版</span>
     </a>
-    <a class="btn fin-dl fin-sec" data-os="mac" data-rel-href="macDownloadUrl" href="https://github.com/zhangxq0606-ctrl/PodDesk/releases/download/v0.2.2/PodDesk_0.2.2_aarch64.dmg" rel="noreferrer">
+    <a class="btn fin-dl fin-sec" data-os="mac" data-rel-href="macProxyUrl" data-rel-download="macFileName" href="/dl/v0.2.4/PodDesk_0.2.4_aarch64.dmg" download="PodDesk_0.2.4_aarch64.dmg">
      <svg class="os-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M16.52 12.7c-.03-2.55 2.08-3.78 2.18-3.84-1.19-1.74-3.04-1.98-3.69-2.01-1.56-.16-3.06.93-3.85.93-.8 0-2.02-.91-3.33-.88-1.7.03-3.27.99-4.15 2.52-1.78 3.08-.45 7.64 1.27 10.14.84 1.22 1.85 2.59 3.17 2.54 1.28-.05 1.76-.82 3.3-.82 1.54 0 1.98.82 3.32.79 1.38-.02 2.24-1.24 3.08-2.46.97-1.42 1.37-2.8 1.39-2.87-.03-.01-2.66-1.02-2.69-4.04zM13.99 5.3c.7-.85 1.18-2.03 1.05-3.2-1.01.04-2.24.67-2.96 1.52-.64.74-1.21 1.94-1.06 3.09 1.13.09 2.28-.56 2.97-1.41z"/></svg>
      <span>下载 macOS 版</span>
     </a>
+   </div>
+
+   <div class="fin-dl-status" id="fin-dl-status" hidden aria-live="polite">
+    <div class="fin-dl-msg"><i class="fin-dl-dot" aria-hidden="true"></i><span id="fin-dl-text">正在拉起下载，请留意浏览器下载栏…</span></div>
+    <div class="fin-dl-alt">
+     <span>若长时间未弹出下载，可改用：</span>
+     <a id="fin-alt-mirror" href="https://ghfast.top/https://github.com/zhangxq0606-ctrl/PodDesk/releases/download/v0.2.4/PodDesk_0.2.4_x64-setup.exe" target="_blank" rel="noreferrer">备用国内镜像</a>
+     <span aria-hidden="true">·</span>
+     <a id="fin-alt-github" href="https://github.com/zhangxq0606-ctrl/PodDesk/releases/download/v0.2.4/PodDesk_0.2.4_x64-setup.exe" target="_blank" rel="noreferrer">GitHub 原链</a>
+    </div>
    </div>
 
    <div class="fin-meta">
@@ -790,6 +819,12 @@ function announce(msg) { if (!liveStatus) return; liveStatus.textContent = ''; r
 
 /* 注入发布配置 */
 (function applyRelease() {
+  const useDirectMirror = location.protocol === 'file:';
+  RELEASE.winMirrorUrl = `https://ghfast.top/${RELEASE.winDownloadUrl}`;
+  RELEASE.macMirrorUrl = `https://ghfast.top/${RELEASE.macDownloadUrl}`;
+  RELEASE.winProxyUrl = useDirectMirror ? RELEASE.winMirrorUrl : `/dl/${RELEASE.version}/${RELEASE.winFileName}`;
+  RELEASE.macProxyUrl = useDirectMirror ? RELEASE.macMirrorUrl : `/dl/${RELEASE.version}/${RELEASE.macFileName}`;
+
   document.querySelectorAll('[data-rel="version"]').forEach(el => el.textContent = RELEASE.version);
   document.querySelectorAll('[data-rel="winFileName"]').forEach(el => el.textContent = RELEASE.winFileName);
   document.querySelectorAll('[data-rel="winSizeLabel"]').forEach(el => el.textContent = RELEASE.winSizeLabel);
@@ -799,11 +834,15 @@ function announce(msg) { if (!liveStatus) return; liveStatus.textContent = ''; r
     const key = el.dataset.relHref;
     if (RELEASE[key]) el.href = RELEASE[key];
   });
+  document.querySelectorAll('[data-rel-download]').forEach(el => {
+    const key = el.dataset.relDownload;
+    if (RELEASE[key]) el.setAttribute('download', RELEASE[key]);
+  });
   const facts = $('#beta-facts');
   if (facts) facts.textContent = `${RELEASE.version} ${RELEASE.stage}`;
 })();
 
-/* 5. 开放式收官剧场：平台自适应主次按钮、渐进式放行抽屉、命令复制与 FAQ 互斥 */
+/* 5. 开放式收官剧场：平台自适应主次按钮、即时下载提示、渐进式放行抽屉、命令复制与 FAQ 互斥 */
 (function initFinaleStage() {
   const actions = $('#fin-actions');
   const toggle = $('#fin-guide-toggle');
@@ -813,8 +852,13 @@ function announce(msg) { if (!liveStatus) return; liveStatus.textContent = ''; r
   const dlBtns = [...actions.querySelectorAll('.fin-dl')];
   const dTabs = [...drawer.querySelectorAll('.fin-dtab')];
   const dPanes = [...drawer.querySelectorAll('.fin-dpane')];
+  const dlStatus = $('#fin-dl-status');
+  const dlText = $('#fin-dl-text');
+  const altMirror = $('#fin-alt-mirror');
+  const altGithub = $('#fin-alt-github');
   const platHint = navigator.userAgentData?.platform || navigator.platform || navigator.userAgent || '';
   const detectedOs = /mac|iphone|ipad/i.test(platHint) ? 'mac' : 'win';
+  let currentDlFile = '';
 
   const primaryBtn = dlBtns.find(b => b.dataset.os === detectedOs);
   if (primaryBtn) actions.prepend(primaryBtn);
@@ -839,10 +883,30 @@ function announce(msg) { if (!liveStatus) return; liveStatus.textContent = ''; r
     if (os) selectDrawerOs(os);
   }
 
+  function showDownloadStatus(os) {
+    const isMac = os === 'mac';
+    const file = isMac ? RELEASE.macFileName : RELEASE.winFileName;
+    currentDlFile = file;
+    if (dlText) dlText.textContent = `正在拉起 ${file} 下载，请留意浏览器下载栏…`;
+    if (altMirror) altMirror.href = isMac ? RELEASE.macMirrorUrl : RELEASE.winMirrorUrl;
+    if (altGithub) altGithub.href = isMac ? RELEASE.macDownloadUrl : RELEASE.winDownloadUrl;
+    if (dlStatus) dlStatus.hidden = false;
+    announce(`正在下载 ${file}`);
+  }
+
   selectDrawerOs(detectedOs);
   toggle.addEventListener('click', () => setDrawerOpen(drawer.hidden));
   dTabs.forEach(t => t.addEventListener('click', () => selectDrawerOs(t.dataset.os)));
-  dlBtns.forEach(b => b.addEventListener('click', () => setDrawerOpen(true, b.dataset.os)));
+  dlBtns.forEach(b => b.addEventListener('click', () => {
+    setDrawerOpen(true, b.dataset.os);
+    showDownloadStatus(b.dataset.os);
+  }));
+  if (altMirror) altMirror.addEventListener('click', () => {
+    if (dlText && currentDlFile) dlText.textContent = `已切换备用国内镜像拉起 ${currentDlFile}，请留意浏览器下载栏…`;
+  });
+  if (altGithub) altGithub.addEventListener('click', () => {
+    if (dlText && currentDlFile) dlText.textContent = `已切换 GitHub 原链拉起 ${currentDlFile}，请留意浏览器下载栏…`;
+  });
 
   const copyBtn = $('#macCopyBtn');
   const cmdEl = $('#macQuarantineCmd');

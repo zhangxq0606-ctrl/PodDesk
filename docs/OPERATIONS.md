@@ -11,7 +11,7 @@
 | **1. 代码层** | 前端工作台、Rust 后端、Tauri 桌面壳、官网源码 | GitHub `main` 分支 | 日常开发以 `main` 为唯一中转站 |
 | **2. 自动体检层（CI）** | 前端单测/构建、全仓版本校验、Win/Mac 原生编译与后端测试 | `.github/workflows/ci.yml` | 推送 `main` 或提 PR 时触发（自动跳过纯文档与 `website/` 改动） |
 | **3. 双端发版层（CD）** | 云端双端打包（Windows NSIS `.exe` + macOS `.dmg`）与校验码发布 | `.github/workflows/release.yml` | 推送 `v*.*.*` 标签（或手动触发）→ 生成 **GitHub Release 草稿** |
-| **4. 官网分发层** | 产品展示、安装放行指引与双端下载直链 | `website/` → Cloudflare Pages | `main` 更新后由 Cloudflare Pages 自动部署至 `https://poddesk.captainxq.me/` |
+| **4. 官网分发层** | 产品展示、安装放行指引与同域下载转发（含备用镜像切换） | `website/`（含 `_worker.js` / `_routes.json`）→ Cloudflare Pages | `main` 更新后由 Cloudflare Pages 自动部署至 `https://poddesk.captainxq.me/` |
 
 ---
 
@@ -52,7 +52,7 @@
    git push origin v<X.Y.Z>
    ```
    `release.yml` 会先校验 `--tag v<X.Y.Z>` 与全仓 5 处版本一致，再在 `windows-latest` 与 `macos-26` 并行打包 `.exe` 与 `.dmg`，最终自动创建带 `SHA256SUMS.txt` 的 **GitHub Release 草稿（Pre-release）**。
-5. **验收与正式上架**：在 GitHub Releases 页面从草稿下载 `.exe` 与 `.dmg` 抽检确认可正常启动后，点击 **Publish release** 公开直链；随后打开 `https://poddesk.captainxq.me/` 核验双端下载按钮均可正常触发下载。
+5. **验收与正式上架**：在 GitHub Releases 页面从草稿下载 `.exe` 与 `.dmg` 抽检确认可正常启动后，点击 **Publish release** 公开直链（官网同域 `/dl/*` 转发仅对已公开 Release 生效，草稿状态会返回 404）；随后打开 `https://poddesk.captainxq.me/` 核验双端下载按钮均可正常触发下载。
 
 ---
 
@@ -73,3 +73,4 @@
 | **Windows 干净机器启动 CrispASR 报缺 DLL** | Windows 打包前依赖 `scripts/stage-vcrt.ps1` 从 MSVC Redist 拷贝 4 个运行库至 `desktop/vcrt/` 随包分发；在本地或 `windows-latest` 构建需确保已安装 VS BuildTools 的 VC++ Redist 组件。 |
 | **macOS Apple Silicon 转写显示或运行异常** | Apple Silicon 走 `crispasr-macos-arm64` 内嵌 Metal，代码内复用 `RuntimeVariant::Cpu` 并在 `aarch64/macos` 下映射展示为 `Apple Silicon (Metal)`；修改平台判断时需保持 Windows/x86_64 分支不受影响。 |
 | **推了 `website/` 后官网未更新** | Cloudflare Pages 部署配置托管在 Cloudflare 后台，若未自动刷新，前往 Cloudflare Pages 面板核查绑定分支是否为 `main` 且构建输出目录为 `website`。 |
+| **官网点击下载报 404 或转发未生效** | 同域 `/dl/*` 转发由 `website/_worker.js` 与 `website/_routes.json` 提供；需确认对应版本 GitHub Release 已从 Draft 点击 **Publish release** 公开，且 Cloudflare Pages 构建输出目录为 `website`（高级模式自动加载 `_worker.js`）。 |
