@@ -131,12 +131,12 @@ jobs:
           if gh release view "$TAG" -R "$REPO" >/dev/null 2>&1; then
             gh release upload "$TAG" release-assets/* --clobber -R "$REPO"
           else
-            cat <<EOF > release-notes.md
-          PodDesk $TAG 内测版（Windows 10/11 x64 + macOS Apple Silicon）
+            cat <<'EOF' | sed "s/__TAG__/${TAG}/g" > release-notes.md
+          PodDesk __TAG__ 内测版（Windows 10/11 x64 + macOS Apple Silicon）
 
           ### 下载与安装
-          - **Windows**：下载 \`*_x64-setup.exe\`（约 6.1 MB，已随包附带 VC++ 运行库）。
-          - **macOS (Apple Silicon)**：下载 \`*_aarch64.dmg\`（约 8.3 MB），打开后将 PodDesk 拖入「应用程序」（离线转写默认启用 Metal 加速）。
+          - **Windows**：下载 `*_x64-setup.exe`（约 6.1 MB，已随包附带 VC++ 运行库）。
+          - **macOS (Apple Silicon)**：下载 `*_aarch64.dmg`（约 8.3 MB），打开后将 PodDesk 拖入「应用程序」（离线转写默认启用 Metal 加速）。
 
           ### 首次打开提示（开源未签名版）
           - **Windows SmartScreen**：遇到「已保护你的电脑」时，点击「更多信息」→「仍要运行」。
