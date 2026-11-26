@@ -3,12 +3,12 @@ lifecycle: bootstrap
 foundation: pending
 active_goal: null
 work_status: active
-last_verified: 2026-11-25
+last_verified: 2026-11-26
 ---
 
 # 当前里程碑
 
-`v0.2.0`（Windows x64 `.exe` + macOS Apple Silicon `.dmg`）已通过双端 CI/CD 发布为 GitHub Pre-release，官网 `https://poddesk.captainxq.me/` 已同步至最新版本。当前进入内测反馈收集与迭代收口期；对外变更见 [CHANGELOG.md](../CHANGELOG.md)。
+`v0.2.3` 已准备双端发版并对齐全仓版本号与更新日志，官网 `https://poddesk.captainxq.me/` 随 `main` 自动同步。当前进入内测反馈收集与迭代收口期；对外变更见 [CHANGELOG.md](../CHANGELOG.md)。
 
 # 已验证能力
 
@@ -40,6 +40,11 @@ last_verified: 2026-11-25
 
 # 最近完成
 
+- **2026-11-26（桌面代理与登录防死锁、网络诊断、`agy` 兼容及播放器/字幕交互打磨）**：
+  - 稳定性与兼容性：为桌面端主窗口与 YouTube 登录窗注入统一 WebView 代理（`macos-proxy` / WebView2 `--proxy-server`），将 Windows 登录窗改为异步创建并去除菜单栏防死锁（[main.rs](../desktop/src/main.rs)、[ytlogin.rs](../desktop/src/ytlogin.rs)）；新增 `GET /api/network/check` 与「设置 › 网络与风控」一键网络诊断及脱敏报告复制，并在视频报错卡增加直达入口（[net.rs](../server/src/net.rs)、[NetworkSettingsSection.tsx](../src/components/settings/NetworkSettingsSection.tsx)）；升级 `agy` 动态 `--help` 探参、模型切换回读校验与末尾异常回复识别（[agents.rs](../server/src/agents.rs)）。
+  - 体验打磨：落地三次方人耳感知音量曲线（[playerUtils.ts](../src/components/player/playerUtils.ts)）、`0.5×–3×` 倍速弹出列表（YouTube 嵌入限 `2×`，[Controls.tsx](../src/components/player/Controls.tsx)）、包裹 `.stage-video-wrap` 保留画内双语字幕与控制栏的视频真全屏（`F` 键，[PlayerPanel.tsx](../src/components/PlayerPanel.tsx)、[VideoStage.tsx](../src/components/player/VideoStage.tsx)）、`yt-dlp` 与 InnerTube 缺失视频时长自动回填（[ytdlp.rs](../server/src/asr/ytdlp.rs)、[episodes.rs](../server/src/routes/episodes.rs)）、频道单集「最新 / 最早」排序切换（[Lists.tsx](../src/components/Lists.tsx)）、音频字幕菜单轻量时间对齐（`±1s` 与点句对齐，[subAlign.ts](../src/lib/subAlign.ts)、[TranscriptPanel.tsx](../src/components/TranscriptPanel.tsx)），以及全设置页 5 分页统一视觉重构与 `tauri:dev` 监听修复。
+  - 文档规划：在 [PROJECT.md](PROJECT.md) 与 [ARCHITECTURE.md](ARCHITECTURE.md) 二期边界补充轻量本地 MCP Server 规划。
+  - 回归验证：`npm run typecheck`、`npm run test`（9 文件 41 用例）、`npm run build`（`LAB_HITS=0`）、`npm run version:check`、`cargo test --manifest-path server/Cargo.toml`（67 passed, 1 ignored）与 `cargo test --manifest-path desktop/Cargo.toml`（2 passed）全部通过。
 - **2026-11-25（AI 链路调优、谷歌翻译剥离、SSE 闭环与本地 CLI 隔离）**：移除谷歌翻译与划词翻译入口，上线 Guide 页同意后一键联动字幕精译、`thinking` 思考计时与系统提示词前缀缓存；修复 `/api/llm/chat` 后台断连通道克隆导致 SSE 流无法结束的死锁（改用 `CancelOnDropStream`）；收口移除 `Qwen Code`（保留 `Qwen3-ASR`），为 `OpenCode` / `Codex` / `Antigravity` 注入进程级只读无工具隔离，补充 ACP `spare` 预建会话、`tool_call` 立即拦截、Windows 进程树回收、`90s` 排队上限与最近调用追踪日志（`/api/llm/metrics`），并增加前端词表提取 `28s` 超时跳过兜底与冷启动标题翻译修复。
 - **2026-11-25（开源门面与文档结构收口）**：新增根目录 [README.md](../README.md)、[CHANGELOG.md](../CHANGELOG.md) 与 `.github/ISSUE_TEMPLATE/` 内测反馈模板；将 `PROJECT.md`、`PROGRESS.md`、`ARCHITECTURE.md` 收归 `docs/`，修复 [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md) 本地死链并更新 [AGENTS.md](../AGENTS.md) 导航与 [.gitignore](../.gitignore)。
 - **2026-11-24（`v0.2.0` 发布与官网升级）**：落地应用内 YouTube WebView 登录兜底（[ytlogin.rs](../desktop/src/ytlogin.rs)、[ytdlp.rs](../server/src/asr/ytdlp.rs)）、完整播单翻页（[youtube.rs](../server/src/youtube.rs)）、导读骨架防闪烁（[GuidePanel.tsx](../src/components/chat/GuidePanel.tsx)）、3 档单集标题与 [UpdateModal.tsx](../src/components/UpdateModal.tsx)；发布双端 `v0.2.0` Pre-release 并完成官网第 5 屏与品牌 Logo 统一。
