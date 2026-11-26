@@ -7,11 +7,13 @@ on:
       - '**.md'
       - 'docs/**'
       - 'website/**'
+      - 'competition-site/**'
   pull_request:
     paths-ignore:
       - '**.md'
       - 'docs/**'
       - 'website/**'
+      - 'competition-site/**'
 
 permissions:
   contents: read

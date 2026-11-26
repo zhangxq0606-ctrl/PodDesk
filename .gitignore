@@ -21,3 +21,6 @@ desktop/gen/
 .DS_Store
 Thumbs.db
 *.log
+
+# Competition site materials (local only)
+competition-site/
