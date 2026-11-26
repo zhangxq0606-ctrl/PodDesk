@@ -7,7 +7,19 @@ use std::time::Duration;
 
 pub const UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) PodcastDesk/0.1";
 
-static CLIENT: Lazy<RwLock<(String, reqwest::Client)>> = Lazy::new(|| RwLock::new((String::new(), build("").unwrap())));
+struct ClientState {
+    configured: String,
+    applied_effective: Option<String>,
+    client: reqwest::Client,
+}
+
+static CLIENT: Lazy<RwLock<ClientState>> = Lazy::new(|| {
+    RwLock::new(ClientState {
+        configured: String::new(),
+        applied_effective: None,
+        client: DIRECT.clone(),
+    })
+});
 static SYSTEM_PROXY_CACHE: Lazy<RwLock<(Option<std::time::Instant>, String)>> =
     Lazy::new(|| RwLock::new((None, String::new())));
 static GITHUB_MIRROR: Lazy<RwLock<String>> = Lazy::new(|| RwLock::new(String::new()));
@@ -25,29 +37,77 @@ fn base() -> reqwest::ClientBuilder {
         .brotli(true)
 }
 
-fn build(proxy: &str) -> Result<reqwest::Client> {
-    let mut b = base();
+fn validate_proxy(proxy: &str) -> Result<String> {
     let trimmed = proxy.trim();
     if !trimmed.is_empty() {
         let lower = trimmed.to_lowercase();
-        if !(lower.starts_with("http://") || lower.starts_with("https://") || lower.starts_with("socks5://") || lower.starts_with("socks5h://")) {
+        if !(lower.starts_with("http://")
+            || lower.starts_with("https://")
+            || lower.starts_with("socks5://")
+            || lower.starts_with("socks5h://"))
+        {
             return Err(anyhow!("代理地址无效：请以 http://、https:// 或 socks5:// 开头"));
         }
-        b = b.proxy(reqwest::Proxy::all(trimmed).map_err(|e| anyhow!("代理地址无效：{e}"))?);
+        reqwest::Proxy::all(trimmed).map_err(|e| anyhow!("代理地址无效：{e}"))?;
+    }
+    Ok(trimmed.to_string())
+}
+
+fn build_no_proxy() -> Option<reqwest::NoProxy> {
+    let mut parts = vec!["127.0.0.1".to_string(), "localhost".to_string(), "::1".to_string()];
+    for k in ["NO_PROXY", "no_proxy"] {
+        if let Ok(v) = std::env::var(k) {
+            if !v.trim().is_empty() {
+                parts.push(v);
+                break;
+            }
+        }
+    }
+    reqwest::NoProxy::from_string(&parts.join(","))
+}
+
+fn build_for_effective(effective: &str) -> Result<reqwest::Client> {
+    let mut b = base();
+    let trimmed = effective.trim();
+    if trimmed.is_empty() {
+        b = b.no_proxy();
+    } else {
+        let proxy = reqwest::Proxy::all(trimmed)
+            .map_err(|e| anyhow!("代理地址无效：{e}"))?
+            .no_proxy(build_no_proxy());
+        b = b.proxy(proxy);
     }
     Ok(b.build()?)
 }
 
-pub fn set_proxy(proxy: &str) -> Result<()> {
-    let trimmed = proxy.trim().to_string();
-    let client = build(&trimmed)?;
-    *CLIENT.write().unwrap_or_else(|e| e.into_inner()) = (trimmed, client);
+fn invalidate_system_proxy_cache() {
     *SYSTEM_PROXY_CACHE.write().unwrap_or_else(|e| e.into_inner()) = (None, String::new());
+}
+
+pub fn set_proxy(proxy: &str) -> Result<()> {
+    let trimmed = validate_proxy(proxy)?;
+    invalidate_system_proxy_cache();
+    let built = if trimmed.is_empty() {
+        None
+    } else {
+        Some(build_for_effective(&trimmed)?)
+    };
+    let mut guard = CLIENT.write().unwrap_or_else(|e| e.into_inner());
+    guard.configured = trimmed.clone();
+    match built {
+        Some(client) => {
+            guard.applied_effective = Some(trimmed);
+            guard.client = client;
+        }
+        None => {
+            guard.applied_effective = None;
+        }
+    }
     Ok(())
 }
 
 pub fn proxy() -> String {
-    CLIENT.read().unwrap_or_else(|e| e.into_inner()).0.clone()
+    CLIENT.read().unwrap_or_else(|e| e.into_inner()).configured.clone()
 }
 
 pub fn set_github_mirror(raw: &str) -> Result<()> {
@@ -91,12 +151,7 @@ pub fn github_release_urls(original_url: &str) -> Vec<String> {
     urls
 }
 
-/// The proxy for child tools (yt-dlp, local AI agents): the one set manually, else the system's.
-pub fn effective_proxy() -> String {
-    let own = proxy();
-    if !own.is_empty() {
-        return own;
-    }
+fn cached_system_proxy() -> String {
     if let Some(at) = SYSTEM_PROXY_CACHE.read().unwrap_or_else(|e| e.into_inner()).0 {
         if at.elapsed().as_secs() < 30 {
             return SYSTEM_PROXY_CACHE.read().unwrap_or_else(|e| e.into_inner()).1.clone();
@@ -105,6 +160,19 @@ pub fn effective_proxy() -> String {
     let found = system_proxy().unwrap_or_default();
     *SYSTEM_PROXY_CACHE.write().unwrap_or_else(|e| e.into_inner()) = (Some(std::time::Instant::now()), found.clone());
     found
+}
+
+fn resolve_target_proxy() -> (String, String) {
+    let own = proxy();
+    if !own.is_empty() {
+        return (own.clone(), own);
+    }
+    (String::new(), cached_system_proxy())
+}
+
+/// The proxy for child tools (yt-dlp, local AI agents): the one set manually, else the system's.
+pub fn effective_proxy() -> String {
+    resolve_target_proxy().1
 }
 
 fn system_proxy() -> Option<String> {
@@ -121,7 +189,7 @@ fn system_proxy() -> Option<String> {
         let text = String::from_utf8_lossy(&out.stdout);
         let get = |k: &str| text.lines().find_map(|l| {
             let (a, b) = l.split_once(" : ")?;
-            (a.trim() == k).then(|| b.trim().to_string())
+            (a.trim() == k).then(|| b.trim().to_string()).filter(|v| !v.is_empty())
         });
         if get("HTTPSEnable").as_deref() == Some("1") {
             if let (Some(h), Some(p)) = (get("HTTPSProxy"), get("HTTPSPort")) {
@@ -160,14 +228,32 @@ fn system_proxy() -> Option<String> {
                 .or_else(|| v.split(';').find(|p| p.starts_with("http=")))
                 .unwrap_or(&v);
             let hp = pick.split('=').last()?;
-            return Some(if hp.contains("://") { hp.to_string() } else { format!("http://{hp}") });
+            if !hp.is_empty() {
+                return Some(if hp.contains("://") { hp.to_string() } else { format!("http://{hp}") });
+            }
         }
     }
     None
 }
 
 pub fn client() -> reqwest::Client {
-    CLIENT.read().unwrap_or_else(|e| e.into_inner()).1.clone()
+    let (configured, want) = resolve_target_proxy();
+    {
+        let guard = CLIENT.read().unwrap_or_else(|e| e.into_inner());
+        if guard.configured == configured && guard.applied_effective.as_deref() == Some(want.as_str()) {
+            return guard.client.clone();
+        }
+    }
+    let built = build_for_effective(&want).unwrap_or_else(|err| {
+        eprintln!("警告：应用生效代理失败（{err}），已回退直连");
+        DIRECT.clone()
+    });
+    let mut guard = CLIENT.write().unwrap_or_else(|e| e.into_inner());
+    if guard.configured == configured && guard.applied_effective.as_deref() != Some(want.as_str()) {
+        guard.applied_effective = Some(want);
+        guard.client = built;
+    }
+    guard.client.clone()
 }
 
 /// A GET with up to two retries on connection-level failures, timeouts, 429 and 5xx.
@@ -275,6 +361,7 @@ async fn probe_url(id: &'static str, url: &str) -> NetCheckItem {
 }
 
 pub async fn run_network_check(data: &std::path::Path, webview_proxy_status: &str) -> NetworkReport {
+    invalidate_system_proxy_cache();
     let own = proxy();
     let used = effective_proxy();
     let proxy_item = NetCheckItem {
@@ -319,18 +406,85 @@ pub async fn run_network_check(data: &std::path::Path, webview_proxy_status: &st
 mod tests {
     use super::*;
 
+    static TEST_LOCK: Lazy<std::sync::Mutex<()>> = Lazy::new(|| std::sync::Mutex::new(()));
+
     #[test]
     fn validates_proxy_urls_and_refused_errors() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         assert!(set_proxy("http://127.0.0.1:7890").is_ok());
         assert_eq!(proxy(), "http://127.0.0.1:7890");
         assert!(set_proxy("socks5://127.0.0.1:7891").is_ok());
         assert!(set_proxy("invalid-proxy").is_err());
         assert!(set_proxy("://bad").is_err());
+        assert!(set_proxy("http://not a valid proxy").is_err());
         assert!(set_proxy("").is_ok());
         assert_eq!(proxy(), "");
 
         assert!(refused("tcp connect error: Connection refused (os error 10061)"));
         assert!(!refused("timed out"));
+    }
+
+    #[test]
+    fn rebuilds_client_when_system_proxy_changes() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        set_proxy("").unwrap();
+
+        *SYSTEM_PROXY_CACHE.write().unwrap_or_else(|e| e.into_inner()) =
+            (Some(std::time::Instant::now()), "http://127.0.0.1:17890".to_string());
+        let _ = client();
+        assert_eq!(
+            CLIENT.read().unwrap_or_else(|e| e.into_inner()).applied_effective.as_deref(),
+            Some("http://127.0.0.1:17890")
+        );
+
+        *SYSTEM_PROXY_CACHE.write().unwrap_or_else(|e| e.into_inner()) =
+            (Some(std::time::Instant::now()), "http://127.0.0.1:17897".to_string());
+        let _ = client();
+        assert_eq!(
+            CLIENT.read().unwrap_or_else(|e| e.into_inner()).applied_effective.as_deref(),
+            Some("http://127.0.0.1:17897")
+        );
+
+        *SYSTEM_PROXY_CACHE.write().unwrap_or_else(|e| e.into_inner()) =
+            (Some(std::time::Instant::now()), String::new());
+        let _ = client();
+        assert_eq!(
+            CLIENT.read().unwrap_or_else(|e| e.into_inner()).applied_effective.as_deref(),
+            Some("")
+        );
+
+        set_proxy("").unwrap();
+    }
+
+    #[test]
+    fn bypasses_proxy_for_loopback_addresses() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let body = rt.block_on(async {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            tokio::spawn(async move {
+                if let Ok((mut sock, _)) = listener.accept().await {
+                    let mut buf = [0u8; 512];
+                    let _ = sock.read(&mut buf).await;
+                    let _ = sock
+                        .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+                        .await;
+                }
+            });
+
+            set_proxy("http://127.0.0.1:1").unwrap();
+            let res = client()
+                .get(format!("http://127.0.0.1:{}/ping", addr.port()))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(res.status(), 200);
+            res.text().await.unwrap()
+        });
+        set_proxy("").unwrap();
+        assert_eq!(body, "ok");
     }
 
     #[test]
@@ -343,6 +497,7 @@ mod tests {
 
     #[test]
     fn github_mirror_normalization_and_candidate_order() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let orig = "https://github.com/yt-dlp/yt-dlp/releases/latest/download";
         set_github_mirror("").unwrap();
         assert_eq!(github_mirror(), "");
