@@ -8,15 +8,18 @@ last_verified: 2026-11-26
 
 # 当前里程碑
 
-`v0.2.4` 已完成热修补发并对齐全仓版本号与更新日志，官网 `https://poddesk.captainxq.me/` 随 `main` 自动同步。当前进入内测反馈收集与迭代收口期；对外变更见 [CHANGELOG.md](../CHANGELOG.md)。
+`v0.2.4` 已公开 GitHub Release 内测版并完成双端安装包、官网 `https://poddesk.captainxq.me/` 下载直链及 `v0.2.3`/`v0.2.4` 核心体验真机验收，本轮内测交付已收口；对外变更见 [CHANGELOG.md](../CHANGELOG.md)。
 
 # 已验证能力
 
+- **`v0.2.4` 发布与双端真机验收（`2026-11-26` 实测）**：
+  - 本地校验：`npm run version:check -- --tag v0.2.4`、`npm run typecheck`、`npm run test`（Vitest 9 文件 41 用例）、`npm run build`（Vite 6，`LAB_HITS=0`）、`cargo test --manifest-path server/Cargo.toml`（68 passed, 1 ignored）与 `cargo test --manifest-path desktop/Cargo.toml`（2 passed）全部通过；
+  - 线上与双端真机验收：GitHub Release `v0.2.4` 双端安装包（`.exe` / `.dmg`）抽检启动、官网直链、限流场景 `releases.atom` 更新回退与报错透传，以及 `v0.2.3` 合入的音量曲线、`0.5×–3×` 倍速、视频 `F` 键全屏与画内字幕、频道排序、音频字幕轻量对齐、`agy` 兼容、桌面统一代理/登录窗防死锁与设置页 5 分页重构均已通过船长真机验收。
 - **`v0.2.0` 全栈校验与云端双端出包（`2026-11-24` 实测）**：
   - 本地校验：`npm run version:check -- --tag v0.2.0`、`npm run typecheck`、`npm run test`（Vitest 7 文件 29 用例）、`npm run build`（Vite 6）、`cargo test --manifest-path server/Cargo.toml`（58 passed, 1 ignored）、`cargo test --manifest-path desktop/Cargo.toml`（1 passed）与 Windows `npm run tauri:build`（`6.09 MiB`）均通过；
   - 云端流水线：GitHub Actions 三路 CI（`web` / `windows-latest` / `macos-26`）与 `release.yml` 双端打包、`SHA256SUMS.txt` 及 Release 直链 302 跳转均已验证。
 - **macOS Apple Silicon 真机验证（`M1 / macOS 15.8`）**：`.dmg` 安装与 `xattr -dr com.apple.quarantine /Applications/PodDesk.app` 放行、Metal 离线转写（`Qwen3-ASR 0.6B` / `SenseVoice-Small`）、托盘、单实例、系统代理透传、`yt-dlp` 与 `Codex` SSE 问答均已实测通过。
-- **离线 ASR 与本地后端核心链路**：Windows `RTX 5070 Ti`（Vulkan `-dev 1`）与强制 CPU 自动回退、YouTube/RSS/小宇宙/本地媒体 `Range 206` 导入、谷歌直连翻译、Cookie 存取安全边界与跨重启持久化均已完成接口与浏览器实机回归。
+- **离线 ASR 与本地后端核心链路**：Windows `RTX 5070 Ti`（Vulkan `-dev 1`）与强制 CPU 自动回退、YouTube/RSS/小宇宙/本地媒体 `Range 206` 导入、Cookie 存取安全边界与跨重启持久化均已完成接口与浏览器实机回归。
 
 # 当前阻塞
 
@@ -24,9 +27,9 @@ last_verified: 2026-11-26
 
 # 待验证事项
 
-- Windows / macOS `v0.2.0` 真机实操：应用内 YouTube WebView 登录注入临时 Cookie 绕过 `yt-dlp` 风控、直链取消、超 12 集播单翻页（如 Dwarkesh）、3 档单集标题切换与更新弹窗检查；
 - 窄屏（`720×560`）与无字幕单集 `NoTranscriptCard` 实景点击、macOS 托盘右键菜单点击（先前受自动化录屏权限限制）；
-- `Qwen3-ASR 1.7B` 长音频（>30 分钟）切句密度，以及付费云端 ASR / 其他 CLI Agent（`Gemini CLI`、`Claude Code` 等）端到端实测。
+- 超 12 集播单翻页（如 Dwarkesh）与直链中途取消的边界复核；
+- `Qwen3-ASR 1.7B` 长音频（>30 分钟）切句密度，以及付费云端 ASR 与除 `Codex` / `agy` 外其他本机 CLI Agent（`Claude Code`、`Kimi Code`、`OpenCode`）端到端实测。
 
 # 已知技术债
 
@@ -36,10 +39,11 @@ last_verified: 2026-11-26
 
 # 下一步
 
-收集双端内测反馈，修复实测问题并迭代体验；下一次发版前统一用 `npm run version:sync` 升版并同步更新 [CHANGELOG.md](../CHANGELOG.md)。
+已收口二期非必要极客增强项，下一步在「AI 知识沉淀与 Markdown / Obsidian 导出」与「轻量本地 MCP Server」之间明确优先级并展开方案设计；下一次发版前继续统一用 `npm run version:sync` 升版并同步 [CHANGELOG.md](../CHANGELOG.md)。
 
 # 最近完成
 
+- **2026-11-26（`v0.2.4` 真机验收收口与文档事实同步）**：确认 `v0.2.4` GitHub Release 公开、官网直链及双端真机验收通过，并同步更新 [PROJECT.md](PROJECT.md)、[ARCHITECTURE.md](ARCHITECTURE.md) 与本文件，清理已剥离的谷歌翻译残留说明、对齐 HTTP 接口与单测基线、裁剪已否决的极客增强项。
 - **2026-11-26（`v0.2.4` 检查更新限流回退热修）**：为 [update.rs](../server/src/update.rs) 增加 `releases.atom`（含镜像回退）备用通道以绕开 GitHub API 匿名 `403/429` 限流，并在 [store.ts](../src/store.ts)、[SettingsModal.tsx](../src/components/SettingsModal.tsx)、[ReadingSettingsSection.tsx](../src/components/settings/ReadingSettingsSection.tsx) 与 [UpdateModal.tsx](../src/components/UpdateModal.tsx) 透传真实失败原因。
 - **2026-11-26（桌面代理与登录防死锁、网络诊断、`agy` 兼容及播放器/字幕交互打磨）**：
   - 稳定性与兼容性：为桌面端主窗口与 YouTube 登录窗注入统一 WebView 代理（`macos-proxy` / WebView2 `--proxy-server`），将 Windows 登录窗改为异步创建并去除菜单栏防死锁（[main.rs](../desktop/src/main.rs)、[ytlogin.rs](../desktop/src/ytlogin.rs)）；新增 `GET /api/network/check` 与「设置 › 网络与风控」一键网络诊断及脱敏报告复制，并在视频报错卡增加直达入口（[net.rs](../server/src/net.rs)、[NetworkSettingsSection.tsx](../src/components/settings/NetworkSettingsSection.tsx)）；升级 `agy` 动态 `--help` 探参、模型切换回读校验与末尾异常回复识别（[agents.rs](../server/src/agents.rs)）。
