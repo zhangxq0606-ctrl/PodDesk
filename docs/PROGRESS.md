@@ -3,12 +3,12 @@ lifecycle: bootstrap
 foundation: pending
 active_goal: null
 work_status: active
-last_verified: 2026-11-26
+last_verified: 2026-11-27
 ---
 
 # 当前里程碑
 
-`v0.3.0` 已完成 `feat/bilibili` 合入、全仓升版与云端双端出包：GitHub Release 草稿含 `PodDesk_0.3.0_x64-setup.exe`（约 6.3 MB）、`PodDesk_0.3.0_aarch64.dmg`（约 8.5 MB）与 `SHA256SUMS.txt`，待抽检后公开；对外变更见 [CHANGELOG.md](../CHANGELOG.md)。上一版 `v0.2.4` 已公开并完成双端真机验收。
+`v0.3.0` 已公开为 GitHub Pre-release（`2026-11-26 15:08 UTC`），含 `PodDesk_0.3.0_x64-setup.exe`（6,590,844 B）、`PodDesk_0.3.0_aarch64.dmg`（8,912,499 B）与 `SHA256SUMS.txt`，待双端真机抽检；标签指向 `de8f7cf`，`main` 上两条后续小修（`f4fe7d4`、`21c056f`）将在下一次构建带入；对外变更见 [CHANGELOG.md](../CHANGELOG.md)。上一版 `v0.2.4` 已完成双端真机验收。
 
 # 已验证能力
 
@@ -45,7 +45,7 @@ last_verified: 2026-11-26
 
 # 最近完成
 
-- **2026-11-26（`v0.3.0` 合入、统一升版与双端出包）**：`feat/bilibili` 经 PR #4 压缩合入 `main`（`b0ccfc3`）后统一升版至 `0.3.0`，补齐 [CHANGELOG.md](../CHANGELOG.md) 与设置页版本回退、官网静态下载链接及安装包体积说明；本地 `npm run version:check -- --tag v0.3.0`、`npm run typecheck`、`npm run test`（Vitest 10 文件 43 用例）、`npm run build`、`cargo test --manifest-path server/Cargo.toml`（76 passed, 1 ignored）与 `cargo test --manifest-path desktop/Cargo.toml`（2 passed）全部通过；`v0.3.0` 标签触发 `release.yml` 三端并行打包成功，已生成含 `SHA256SUMS.txt` 的 Release 草稿（`.exe` 6.29 MB / `.dmg` 8.5 MB），待抽检后公开。
+- **2026-11-26（`v0.3.0` 合入、统一升版与双端出包）**：`feat/bilibili` 经 PR #4 压缩合入 `main`（`b0ccfc3`）后统一升版至 `0.3.0`，补齐 [CHANGELOG.md](../CHANGELOG.md) 与设置页版本回退、官网静态下载链接及安装包体积说明；本地 `npm run version:check -- --tag v0.3.0`、`npm run typecheck`、`npm run test`（Vitest 10 文件 43 用例）、`npm run build`、`cargo test --manifest-path server/Cargo.toml`（76 passed, 1 ignored）与 `cargo test --manifest-path desktop/Cargo.toml`（2 passed）全部通过；`v0.3.0` 标签触发 `release.yml` 三端并行打包成功，已公开为 Pre-release（`.exe` 6.29 MB / `.dmg` 8.5 MB），待双端真机抽检。
 - **2026-11-26（`feat/bilibili` 分支：B站单集与扫码取稿、音视频直链及 Spotify 查源）**：
   - 后端多源与流代理：新增 [bilibili.rs](../server/src/bilibili.rs) 支持长链/`b23.tv` 短链/`?p=N` 分集解析、直连优先代理兜底策略、WBI 签名拉取官方及 B站 AI 字幕、按 `upos-*` 官方节点优先排序 CDN、音频流下载走现有 ASR 与本地 Range 防盗链流代理（`/api/episodes/{id}/bili-stream`，[episodes.rs](../server/src/routes/episodes.rs)）；在 [transcript.rs](../server/src/transcript.rs) 为无标点中文长句补充按字数节奏切分；同步在 [feeds.rs](../server/src/feeds.rs) 与 [shows.rs](../server/src/routes/shows.rs) 接入在线音视频直链单集与 Spotify 播客反查公开 RSS。
   - 桌面扫码与播放器打磨：泛化 [ytlogin.rs](../desktop/src/ytlogin.rs) 与 [settings.rs](../server/src/routes/settings.rs) 增加 B站内置扫码登录窗及自动同步（[NetworkSettingsSection.tsx](../src/components/settings/NetworkSettingsSection.tsx)、[TranscriptPanel.tsx](../src/components/TranscriptPanel.tsx)）；新增 [videoSource.ts](../src/lib/videoSource.ts) 拆分 YouTube 与 B站播放器、封面无 Referer 防拦截、未登录简洁引导、全屏字幕缩放与单轨主字号，并将非全屏视频播控条与「内容精炼」融为一体卡片（[VideoStage.tsx](../src/components/player/VideoStage.tsx)、[MediaStage.tsx](../src/components/player/MediaStage.tsx)、[PlayerPanel.tsx](../src/components/PlayerPanel.tsx)、[Lists.tsx](../src/components/Lists.tsx)、[player.css](../src/styles/player.css)），同步更新 [PROJECT.md](PROJECT.md) 未来清单。

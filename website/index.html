@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#0c0d0f">
-<title>PodDesk · 让 AI 陪你，一起理解每期长内容</title>
+<title>PodDesk · 让 AI 陪你，一起理解长内容</title>
 <meta name="description" content="PodDesk：面向中英文播客与视频的 AI 原生工作台。逐句双语字幕、本机 Agent 在场问答、离线转写与 Markdown 导出。">
-<meta property="og:title" content="PodDesk — 让 AI 陪你，一起理解每期长内容">
+<meta property="og:title" content="PodDesk — 让 AI 陪你，一起理解长内容">
 <meta property="og:description" content="面向中英文播客与视频的 AI 原生工作台。">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://poddesk.captainxq.me/">
@@ -176,10 +176,10 @@ nav.site-nav .btn{min-height:36px;padding:0 18px;font-size:13.5px}
 .ai-row p{font-size:15px;line-height:1.78;color:var(--text2);margin-top:8px;max-width:40em}
 .ai-row p b{color:var(--text);font-weight:600}
 
-.ai-chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.ai-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:14px}
 .ai-chip{
-  font:500 12px var(--mono);color:var(--text2);
-  padding:4px 11px;border-radius:7px;
+  font:500 11.5px var(--mono);color:var(--text2);
+  padding:3.5px 9.5px;border-radius:7px;white-space:nowrap;
   border:1px solid color-mix(in srgb,var(--line) 92%,transparent);
   background:rgb(19 20 22/.72);
   transition:border-color .2s,color .2s,transform .15s;
@@ -524,7 +524,7 @@ nav.site-nav .btn{min-height:36px;padding:0 18px;font-size:13.5px}
 <!-- 第 1 屏 -->
 <header class="snap-page hero" id="top" data-snap-page="0">
  <div class="hero-head">
-  <h1>让 AI 陪你，<br>一起理解每期长内容。</h1>
+  <h1>让 AI 陪你，<br>一起理解长内容。</h1>
   <p class="sub">面向中英文播客与视频的 AI 原生工作台。</p>
  </div>
  <div class="wave-stage"><canvas id="wave" aria-hidden="true"></canvas></div>
@@ -595,13 +595,10 @@ nav.site-nav .btn{min-height:36px;padding:0 18px;font-size:13.5px}
      <p>直接接入电脑里已登录的 Agent 或模型 API，使用订阅额度。</p>
      <div class="ai-chips" aria-label="支持的本机 Agent 与大模型">
       <span class="ai-chip hi">Codex</span>
-      <span class="ai-chip hi">Claude Code</span>
-      <span class="ai-chip hi">Gemini CLI</span>
-      <span class="ai-chip">Qwen Code</span>
+      <span class="ai-chip hi">Antigravity</span>
+      <span class="ai-chip hi">DeepSeek API</span>
       <span class="ai-chip">Kimi Code</span>
       <span class="ai-chip">OpenCode</span>
-      <span class="ai-chip">Antigravity</span>
-      <span class="ai-chip">DeepSeek</span>
       <span class="ai-chip">Ollama</span>
      </div>
      <p class="ai-sync-note">Agent 实时感知你的<b>播放进度与全篇文稿</b>——随时追问无需铺垫，回答里的每个时间点都能回到原声。</p>
@@ -615,7 +612,7 @@ nav.site-nav .btn{min-height:36px;padding:0 18px;font-size:13.5px}
 <section class="snap-page src-page" id="sources" data-snap-page="3"><div class="wrap">
  <div class="src-head" data-reveal>
   <h2>不挑来源，贴上就能听。</h2>
-  <p class="src-sub">无论是海外长视频、中英文播客，还是硬盘里的录播与字幕，都能收进同一张工作台。</p>
+  <p class="src-sub">无论是中英文播客、国内外长视频，还是硬盘里的录播与字幕，都能收进同一张工作台。</p>
  </div>
 
  <div class="omni-bar" id="omni-bar" data-reveal style="transition-delay:.05s" aria-live="polite">
@@ -639,9 +636,9 @@ nav.site-nav .btn{min-height:36px;padding:0 18px;font-size:13.5px}
 
   <button type="button" class="src-col" data-src-idx="1" aria-pressed="false">
    <span class="src-meta"><span>02 · VIDEO</span><i></i></span>
-   <h3>YouTube 视频</h3>
-   <p>支持频道订阅与单集直开，自动拉取官方字幕并过滤短视频；无字幕一键转写。</p>
-   <div class="src-tags"><span>频道订阅</span><span>单集链接</span><span>官方字幕</span></div>
+   <h3>YouTube &amp; B站</h3>
+   <p>支持双平台单集直开与多P分集，自动拉取官方及 B站 AI 字幕；无字幕一键转写。</p>
+   <div class="src-tags"><span>YouTube</span><span>B站</span><span>字幕直取</span></div>
   </button>
 
   <button type="button" class="src-col" data-src-idx="2" aria-pressed="false">
@@ -654,7 +651,7 @@ nav.site-nav .btn{min-height:36px;padding:0 18px;font-size:13.5px}
   <button type="button" class="src-col" data-src-idx="3" aria-pressed="false">
    <span class="src-meta"><span>04 · TEXT</span><i></i></span>
    <h3>字幕与文稿</h3>
-   <p>B 站、网课或其他平台导出的现成文稿，导入即享 AI 精译、导读与全篇追问。</p>
+   <p>网课、会议或其他平台导出的现成文稿，导入即享 AI 精译、导读与全篇追问。</p>
    <div class="src-tags"><span>.srt</span><span>.vtt</span><span>纯文本</span></div>
   </button>
  </div>
@@ -766,7 +763,7 @@ nav.site-nav .btn{min-height:36px;padding:0 18px;font-size:13.5px}
     <span>PodDesk</span>
     <span class="fin-ver"><span data-rel="version">v0.3.0</span></span>
    </div>
-   <p class="fin-note">开源免费 · AGPL-3.0 · 灵感与架构参考 SubCast（声渡）</p>
+   <p class="fin-note">开源免费 · AGPL-3.0</p>
    <div class="fin-links">
     <a data-rel-href="repoUrl" href="https://github.com/zhangxq0606-ctrl/PodDesk" target="_blank" rel="noreferrer">GitHub 仓库</a>
     <span class="sep" aria-hidden="true">·</span>
@@ -779,11 +776,11 @@ nav.site-nav .btn{min-height:36px;padding:0 18px;font-size:13.5px}
   <div class="fin-faq" id="faq" aria-label="常见问题">
    <details name="poddesk-faq">
     <summary>没有 API Key 能直接用吗？</summary>
-    <p>可以。官方字幕、离线转写与基础翻译开箱即用；本机已登录 Codex、Claude Code 或 Gemini CLI 也可直连问答。</p>
+    <p>可以。官方字幕、离线转写与基础翻译开箱即用；支持接入 Codex、Antigravity 等本机 Agent 或 DeepSeek API 直连问答。</p>
    </details>
    <details name="poddesk-faq">
     <summary>需要代理吗？音频和数据存在哪？</summary>
-    <p>访问 YouTube 自动沿用系统代理；小宇宙、本地音视频与转写全程本机运行，音频与文稿不出设备。</p>
+    <p>访问 YouTube 自动沿用系统代理；B站、小宇宙、本地音视频与转写全程本机运行，音频与文稿不出设备。</p>
    </details>
    <details name="poddesk-faq">
     <summary>如何更新版本？支持 Intel Mac 吗？</summary>
@@ -1174,10 +1171,11 @@ function announce(msg) { if (!liveStatus) return; liveStatus.textContent = ''; r
   if (!sec || !bar || !textEl || !badgeEl || !statusEl || !cols.length) return;
 
   const SAMPLES = [
-    { input: 'xiaoyuzhoufm.com/episode/67f2a8c9...', status: '已识别小宇宙 · 单集直开' },
-    { input: 'youtube.com/watch?v=x9pK3vR8mQ2', status: '已识别 YouTube · 直取官方字幕' },
-    { input: 'lecture-04-distributed-systems.mp4', status: '本地音视频 · 音频不出本机' },
-    { input: 'keynote-2026-bilingual.srt', status: '已识别字幕文件 · 直接精译与追问' },
+    { col: 0, input: 'xiaoyuzhoufm.com/episode/67f2a8c9...', status: '已识别小宇宙 · 单集直开' },
+    { col: 1, input: 'youtube.com/watch?v=x9pK3vR8mQ2', status: '已识别 YouTube · 直取官方字幕' },
+    { col: 1, input: 'bilibili.com/video/BV1xK4y1Z7Q2?p=2', status: '已识别 B站 · 多P直取官方与 AI 字幕' },
+    { col: 2, input: 'lecture-04-distributed-systems.mp4', status: '本地音视频 · 音频不出本机' },
+    { col: 3, input: 'keynote-2026-bilingual.srt', status: '已识别字幕文件 · 直接精译与追问' },
   ];
 
   let active = 0, timer = 0, swapT = 0, paused = false, inView = false;
@@ -1186,8 +1184,9 @@ function announce(msg) { if (!liveStatus) return; liveStatus.textContent = ''; r
     idx = ((idx % SAMPLES.length) + SAMPLES.length) % SAMPLES.length;
     if (idx === active && textEl.textContent === SAMPLES[idx].input) return;
     active = idx;
+    const activeCol = SAMPLES[active].col;
     cols.forEach((c, i) => {
-      const on = i === active;
+      const on = i === activeCol;
       c.classList.toggle('on', on);
       c.setAttribute('aria-pressed', on ? 'true' : 'false');
     });
@@ -1209,6 +1208,17 @@ function announce(msg) { if (!liveStatus) return; liveStatus.textContent = ''; r
     }, 150);
   }
 
+  function pickColSample(colIdx, cycleIfActive) {
+    const matches = SAMPLES.map((s, i) => (s.col === colIdx ? i : -1)).filter(i => i >= 0);
+    if (!matches.length) return;
+    const curPos = matches.indexOf(active);
+    if (cycleIfActive && curPos >= 0 && matches.length > 1) {
+      select(matches[(curPos + 1) % matches.length]);
+    } else if (curPos < 0) {
+      select(matches[0]);
+    }
+  }
+
   function schedule() {
     clearInterval(timer);
     if (reduce || paused || !inView) return;
@@ -1216,9 +1226,9 @@ function announce(msg) { if (!liveStatus) return; liveStatus.textContent = ''; r
   }
 
   cols.forEach((c, i) => {
-    c.addEventListener('click', () => { paused = true; clearInterval(timer); select(i); });
-    c.addEventListener('mouseenter', () => { clearInterval(timer); select(i); });
-    c.addEventListener('focus', () => { clearInterval(timer); select(i); });
+    c.addEventListener('click', () => { paused = true; clearInterval(timer); pickColSample(i, true); });
+    c.addEventListener('mouseenter', () => { clearInterval(timer); pickColSample(i, false); });
+    c.addEventListener('focus', () => { clearInterval(timer); pickColSample(i, false); });
   });
   sec.addEventListener('mouseleave', () => { paused = false; schedule(); });
 
